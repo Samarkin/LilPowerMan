@@ -1,6 +1,7 @@
 #![windows_subsystem = "windows"]
 
 mod main_window;
+mod ryzenadj;
 mod winapi;
 
 use crate::main_window::MainWindow;

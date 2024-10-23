@@ -1,3 +1,4 @@
+use crate::ryzenadj::RyzenAdj;
 use crate::winapi::{get_default_cursor, get_instance_handle, PaintContext};
 use std::marker::PhantomData;
 use windows::core::{w, Error, Result};
@@ -49,7 +50,7 @@ impl MainWindow {
         }?;
         Ok(MainWindow {
             handle,
-            _marker: PhantomData::default(),
+            _marker: PhantomData,
         })
     }
 
@@ -63,7 +64,19 @@ impl MainWindow {
             WM_PAINT => {
                 // SAFETY: We are responding to the WM_PAINT message
                 let pc = unsafe { PaintContext::for_window(window) };
-                pc.draw_text("Hello, world!", 0, 0);
+                let text = match RyzenAdj::new() {
+                    Ok(r) => {
+                        let limit = r
+                            .get_table()
+                            .expect("Failed to refresh the table")
+                            .get_fast_limit();
+                        format!("{limit} W")
+                    }
+                    Err(e) => {
+                        format!("Error: {e}")
+                    }
+                };
+                pc.draw_text(&text, 0, 0);
                 LRESULT(0)
             }
             WM_DESTROY => {
