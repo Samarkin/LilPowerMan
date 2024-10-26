@@ -1,5 +1,6 @@
 #![windows_subsystem = "windows"]
 
+mod battery;
 mod main_window;
 mod ryzenadj;
 mod winapi;

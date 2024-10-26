@@ -1,7 +1,8 @@
+use crate::battery::BatteriesIterator;
 use crate::ryzenadj::RyzenAdj;
 use crate::winapi::{get_default_cursor, get_instance_handle, PaintContext};
 use std::marker::PhantomData;
-use windows::core::{w, Error, Result};
+use windows::core::{w, Error};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, PostQuitMessage, RegisterClassExW, CS_HREDRAW,
@@ -16,7 +17,7 @@ pub struct MainWindow {
 }
 
 impl MainWindow {
-    pub fn new() -> Result<MainWindow> {
+    pub fn new() -> Result<MainWindow, Error> {
         let window_class_name = w!("MainWindow");
         let instance = get_instance_handle()?;
         let wnd_class_params = WNDCLASSEXW {
@@ -54,6 +55,18 @@ impl MainWindow {
         })
     }
 
+    fn get_text() -> Result<String, Box<dyn std::error::Error>> {
+        let mut text = String::new();
+        text += &format!(
+            "Current TDP: {} W",
+            RyzenAdj::new()?.get_table()?.get_fast_limit()
+        );
+        for b in BatteriesIterator::new()? {
+            text += &format!(", Battery charge rate {} mW", b?.get_charge_rate()?);
+        }
+        Ok(text)
+    }
+
     extern "system" fn process_message(
         window: HWND,
         message: u32,
@@ -64,18 +77,7 @@ impl MainWindow {
             WM_PAINT => {
                 // SAFETY: We are responding to the WM_PAINT message
                 let pc = unsafe { PaintContext::for_window(window) };
-                let text = match RyzenAdj::new() {
-                    Ok(r) => {
-                        let limit = r
-                            .get_table()
-                            .expect("Failed to refresh the table")
-                            .get_fast_limit();
-                        format!("{limit} W")
-                    }
-                    Err(e) => {
-                        format!("Error: {e}")
-                    }
-                };
+                let text = Self::get_text().unwrap_or_else(|e| format!("Error: {}", e));
                 pc.draw_text(&text, 0, 0);
                 LRESULT(0)
             }
