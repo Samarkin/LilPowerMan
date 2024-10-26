@@ -14,7 +14,9 @@ use windows::Win32::Storage::FileSystem::{
 };
 use windows::Win32::System::Memory::{LocalAlloc, LPTR};
 use windows::Win32::System::Power::{
-    BATTERY_STATUS, BATTERY_WAIT_STATUS, IOCTL_BATTERY_QUERY_STATUS, IOCTL_BATTERY_QUERY_TAG,
+    BatteryInformation, BATTERY_CAPACITY_RELATIVE, BATTERY_INFORMATION, BATTERY_IS_SHORT_TERM,
+    BATTERY_QUERY_INFORMATION, BATTERY_STATUS, BATTERY_SYSTEM_BATTERY, BATTERY_WAIT_STATUS,
+    IOCTL_BATTERY_QUERY_INFORMATION, IOCTL_BATTERY_QUERY_STATUS, IOCTL_BATTERY_QUERY_TAG,
 };
 
 pub enum Error {
@@ -156,7 +158,14 @@ impl Iterator for BatteriesIterator {
         self.index += 1;
         // SAFETY: `device_interface_data` is a valid structure
         let battery = unsafe { self.get_battery(&device_interface_data) };
-        Some(battery)
+        match battery {
+            Ok(battery) => match battery.is_supported() {
+                Ok(true) => Some(Ok(battery)),
+                Ok(false) => self.next(),
+                Err(err) => Some(Err(err)),
+            },
+            Err(err) => Some(Err(err)),
+        }
     }
 }
 
@@ -174,5 +183,20 @@ impl Battery {
         let status: BATTERY_STATUS =
             device_io_control(&self.handle, IOCTL_BATTERY_QUERY_STATUS, &bws)?;
         Ok(status.Rate)
+    }
+
+    fn is_supported(&self) -> Result<bool, Error> {
+        let query = BATTERY_QUERY_INFORMATION {
+            BatteryTag: self.tag,
+            InformationLevel: BatteryInformation,
+            ..Default::default()
+        };
+        let info: BATTERY_INFORMATION =
+            device_io_control(&self.handle, IOCTL_BATTERY_QUERY_INFORMATION, &query)?;
+        let rel_capacity =
+            info.Capabilities & BATTERY_CAPACITY_RELATIVE == BATTERY_CAPACITY_RELATIVE;
+        let short_term_battery = info.Capabilities & BATTERY_IS_SHORT_TERM == BATTERY_IS_SHORT_TERM;
+        let system_battery = info.Capabilities & BATTERY_SYSTEM_BATTERY == BATTERY_SYSTEM_BATTERY;
+        Ok(system_battery && !short_term_battery && !rel_capacity)
     }
 }
