@@ -1,4 +1,5 @@
 use crate::battery::BatteriesIterator;
+use crate::icons::{NotifyIcon, WM_NOTIFY_ICON};
 use crate::ryzenadj::RyzenAdj;
 use crate::winapi::{get_default_cursor, get_instance_handle, PaintContext};
 use std::marker::PhantomData;
@@ -6,12 +7,13 @@ use windows::core::{w, Error};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, PostQuitMessage, RegisterClassExW, CS_HREDRAW,
-    CS_VREDRAW, CW_USEDEFAULT, WINDOW_EX_STYLE, WM_DESTROY, WM_PAINT, WNDCLASSEXW,
+    CS_VREDRAW, CW_USEDEFAULT, WINDOW_EX_STYLE, WM_CREATE, WM_DESTROY, WM_PAINT, WNDCLASSEXW,
     WS_OVERLAPPEDWINDOW, WS_VISIBLE,
 };
 
 pub struct MainWindow {
     handle: HWND,
+    icon: Option<NotifyIcon>,
     // This marks MainWindow as !Send and !Sync
     _marker: PhantomData<*const ()>,
 }
@@ -51,6 +53,8 @@ impl MainWindow {
         }?;
         Ok(MainWindow {
             handle,
+            // SAFETY: handle points to a valid window
+            icon: Some(unsafe { NotifyIcon::new(handle, 0)? }),
             _marker: PhantomData,
         })
     }
@@ -74,6 +78,11 @@ impl MainWindow {
         l_param: LPARAM,
     ) -> LRESULT {
         match message {
+            WM_CREATE => {
+                // TODO: Move icon creation here
+                LRESULT(0)
+            }
+            WM_NOTIFY_ICON => LRESULT(0),
             WM_PAINT => {
                 // SAFETY: We are responding to the WM_PAINT message
                 let pc = unsafe { PaintContext::for_window(window) };
@@ -95,6 +104,8 @@ impl MainWindow {
 
 impl Drop for MainWindow {
     fn drop(&mut self) {
+        // The icon should get dropped before the window
+        self.icon = None;
         // SAFETY: MainWindow always contains a valid `handle`
         unsafe {
             let _ = DestroyWindow(self.handle);

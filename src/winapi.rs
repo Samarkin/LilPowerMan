@@ -1,3 +1,4 @@
+mod dc;
 mod paint;
 
 use std::ffi::c_void;
@@ -9,6 +10,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, GetMessageW, LoadCursorW, TranslateMessage, HCURSOR, IDC_ARROW, MSG,
 };
 
+pub use dc::AcquiredDC;
 pub use paint::PaintContext;
 
 pub fn get_instance_handle() -> Result<HINSTANCE> {

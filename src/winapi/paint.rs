@@ -1,17 +1,21 @@
 use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, EndPaint, FillRect, GetSysColorBrush, TextOutW, COLOR_WINDOW, HBRUSH, HDC,
-    PAINTSTRUCT,
+    BeginPaint, CreateCompatibleDC, DeleteDC, EndPaint, FillRect, GetSysColorBrush, SelectObject,
+    TextOutW, COLOR_WINDOW, HBITMAP, HBRUSH, HDC, PAINTSTRUCT,
 };
 
+enum DeviceContextSource {
+    Window(HWND, PAINTSTRUCT),
+    Owned,
+}
+
 pub struct PaintContext {
-    window: HWND,
-    ps: PAINTSTRUCT,
     hdc: HDC,
+    hdc_source: DeviceContextSource,
 }
 
 impl PaintContext {
-    /// Creates new paint context.
+    /// Creates new paint context for a window.
     ///
     /// # Safety
     ///
@@ -23,16 +27,39 @@ impl PaintContext {
         if hdc.is_invalid() {
             panic!("BeginPaint returned invalid HDC");
         }
-        let pc = PaintContext { window, ps, hdc };
-        if pc.ps.fErase.as_bool() {
+        let pc = PaintContext {
+            hdc_source: DeviceContextSource::Window(window, ps),
+            hdc,
+        };
+        if ps.fErase.as_bool() {
             // SAFETY: Using constant system color that is guaranteed to be valid
             let brush = unsafe { GetSysColorBrush(COLOR_WINDOW) };
             if brush.is_invalid() {
                 panic!("GetSysColorBrush returned invalid brush");
             }
-            pc.fill_rect(&pc.ps.rcPaint, brush);
+            pc.fill_rect(&ps.rcPaint, brush);
         }
         pc
+    }
+
+    /// Creates new paint context for a bitmap.
+    ///
+    /// # Safety
+    ///
+    /// Bitmap must be valid.
+    pub unsafe fn for_bitmap(bitmap: HBITMAP) -> PaintContext {
+        // SAFETY: Creating an in-memory DC compatible with the current screen is always sound
+        let hdc = unsafe { CreateCompatibleDC(None) };
+        if hdc.is_invalid() {
+            panic!("CreateCompatibleDC returned an invalid HDC");
+        }
+        // SAFETY: We own the DC, and validity of the bitmap is guaranteed by the caller
+        // Return value is the previous bitmap. It can safely be ignored since we just created the DC
+        let _ = unsafe { SelectObject(hdc, bitmap) };
+        PaintContext {
+            hdc_source: DeviceContextSource::Owned,
+            hdc,
+        }
     }
 
     pub fn fill_rect(&self, rect: &RECT, brush: HBRUSH) {
@@ -53,8 +80,16 @@ impl PaintContext {
 
 impl Drop for PaintContext {
     fn drop(&mut self) {
-        // SAFETY: BeginPaint always precedes creation of an instance of PaintContext
-        // Return value is always non-zero according to the documentation.
-        let _ = unsafe { EndPaint(self.window, &self.ps) };
+        match self.hdc_source {
+            DeviceContextSource::Window(window, ps) => {
+                // SAFETY: BeginPaint preceded creation of this instance of PaintContext
+                // Return value is always non-zero according to the documentation.
+                let _ = unsafe { EndPaint(window, &ps) };
+            }
+            DeviceContextSource::Owned => {
+                // SAFETY: This branch means we own the DC
+                let _ = unsafe { DeleteDC(self.hdc) };
+            }
+        }
     }
 }
