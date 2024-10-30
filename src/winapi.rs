@@ -1,27 +1,34 @@
 mod dc;
 mod paint;
 
-use std::ffi::c_void;
-use windows::core::{Error, Owned, Result};
+use windows::core::{Error, Owned, Result, PCWSTR};
 use windows::Win32::Foundation::{BOOL, HANDLE, HINSTANCE};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::IO::DeviceIoControl;
 use windows::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, GetMessageW, LoadCursorW, TranslateMessage, HCURSOR, IDC_ARROW, MSG,
+    DispatchMessageW, GetMessageW, LoadCursorW, MessageBoxW, TranslateMessage, HCURSOR, IDC_ARROW,
+    MB_OK, MSG,
 };
 
 pub use dc::AcquiredDC;
 pub use paint::PaintContext;
 
-pub fn get_instance_handle() -> Result<HINSTANCE> {
-    // SAFETY: lpModuleName is None instead of a raw pointer
-    let module_handle = unsafe { GetModuleHandleW(None) }?;
-    Ok(module_handle.into())
+pub fn show_error_message_box(text: &str) {
+    let mut text: Vec<u16> = text.encode_utf16().collect();
+    text.push(0);
+    unsafe { MessageBoxW(None, PCWSTR::from_raw(text.as_ptr()), None, MB_OK) };
 }
 
-pub fn get_default_cursor() -> Result<HCURSOR> {
+pub fn get_instance_handle() -> HINSTANCE {
+    // SAFETY: lpModuleName is None instead of a raw pointer
+    // The call is sound and should always return the handle of the main module (.exe file)
+    unsafe { GetModuleHandleW(None) }.unwrap().into()
+}
+
+pub fn get_default_cursor() -> HCURSOR {
     // SAFETY: lpCursorName is a pre-defined constant instead of a raw pointer
-    unsafe { LoadCursorW(None, IDC_ARROW) }
+    // The call is sound and should always return the handle of a pre-defined system cursor
+    unsafe { LoadCursorW(None, IDC_ARROW) }.unwrap()
 }
 
 #[inline]
@@ -34,22 +41,23 @@ fn unwrap_winapi_bool(bool: BOOL) -> Result<bool> {
 }
 
 #[inline]
-fn get_message(msg: &mut MSG) -> Result<bool> {
+fn get_message(msg: &mut MSG) -> bool {
+    // SAFETY: hWnd is NULL and msg is guaranteed to be a valid pointer to writeable memory
     let result = unsafe { GetMessageW(msg, None, 0, 0) };
-    unwrap_winapi_bool(result)
+    // The call is not expected to fail given valid input
+    unwrap_winapi_bool(result).unwrap()
 }
 
 #[inline]
-pub fn windows_message_loop() -> Result<()> {
+pub fn windows_message_loop() {
     let mut msg: MSG = Default::default();
-    while get_message(&mut msg)? {
+    while get_message(&mut msg) {
         // SAFETY: msg has been initialized to the latest message
         unsafe {
             let _ = TranslateMessage(&msg);
             let _ = DispatchMessageW(&msg);
         };
     }
-    Ok(())
 }
 
 pub fn device_io_control<Input, Output: Default>(
@@ -63,9 +71,9 @@ pub fn device_io_control<Input, Output: Default>(
         DeviceIoControl(
             **device,
             control_code,
-            Some(param as *const _ as *const c_void),
+            Some(param as *const _ as *const _),
             size_of::<Input>() as u32,
-            Some(&mut buffer as *mut _ as *mut c_void),
+            Some(&mut buffer as *mut _ as *mut _),
             size_of::<Output>() as u32,
             None,
             None,
