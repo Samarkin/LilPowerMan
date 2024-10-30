@@ -1,7 +1,8 @@
+use windows::core::Owned;
 use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, CreateCompatibleDC, DeleteDC, EndPaint, FillRect, GetSysColorBrush, SelectObject,
-    TextOutW, COLOR_WINDOW, HBITMAP, HBRUSH, HDC, PAINTSTRUCT,
+    TextOutW, COLOR_WINDOW, HBITMAP, HBRUSH, HDC, HFONT, PAINTSTRUCT,
 };
 
 enum DeviceContextSource {
@@ -27,7 +28,7 @@ impl PaintContext {
         if hdc.is_invalid() {
             panic!("BeginPaint returned invalid HDC");
         }
-        let pc = PaintContext {
+        let mut pc = PaintContext {
             hdc_source: DeviceContextSource::Window(window, ps),
             hdc,
         };
@@ -62,14 +63,22 @@ impl PaintContext {
         }
     }
 
-    pub fn fill_rect(&self, rect: &RECT, brush: HBRUSH) {
+    pub fn fill_rect(&mut self, rect: &RECT, brush: HBRUSH) {
         // SAFETY: `hdc` is guaranteed to be valid for `PaintContext`
         if unsafe { FillRect(self.hdc, rect, brush) } == 0 {
             panic!("Failed to call FillRect");
         }
     }
 
-    pub fn draw_text(&self, text: &str, x: i32, y: i32) {
+    pub fn set_font<'this, 'font>(&'this mut self, font: &'font Owned<HFONT>)
+    where
+        'font: 'this,
+    {
+        // SAFETY: We verified that the caller owns the font that will stay valid long enough
+        unsafe { SelectObject(self.hdc, **font) };
+    }
+
+    pub fn draw_text(&mut self, text: &str, x: i32, y: i32) {
         let chars: Vec<u16> = text.encode_utf16().collect();
         // SAFETY: `hdc` is guaranteed to be valid for `PaintContext`, `chars` points to a valid local array
         if unsafe { TextOutW(self.hdc, x, y, chars.as_slice()).0 } == 0 {

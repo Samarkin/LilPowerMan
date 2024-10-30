@@ -9,9 +9,9 @@ use windows::core::{w, Error};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, GetWindowLongPtrW, PostQuitMessage,
-    RegisterClassExW, SetWindowLongPtrW, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT,
-    GWLP_USERDATA, WINDOW_EX_STYLE, WM_CREATE, WM_DESTROY, WM_NCCREATE, WM_PAINT, WNDCLASSEXW,
-    WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+    RegisterClassExW, SetProcessDPIAware, SetWindowLongPtrW, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW,
+    CW_USEDEFAULT, GWLP_USERDATA, WINDOW_EX_STYLE, WM_CREATE, WM_DESTROY, WM_LBUTTONUP,
+    WM_NCCREATE, WM_PAINT, WNDCLASSEXW, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
 };
 
 pub struct MainWindow {
@@ -23,6 +23,11 @@ pub struct MainWindow {
 
 impl MainWindow {
     pub fn new() -> Pin<Box<MainWindow>> {
+        assert_ne!(
+            unsafe { SetProcessDPIAware() }.0,
+            0,
+            "SetProcessDPIAware failed"
+        );
         let window_class_name = w!("MainWindow");
         let instance = get_instance_handle();
         let wnd_class_params = WNDCLASSEXW {
@@ -86,13 +91,16 @@ impl MainWindow {
         match message {
             WM_CREATE => {
                 // SAFETY: Window handle is valid, number of icons is not expected to reach u32::MAX
-                let icon = unsafe { NotifyIcon::new(self.handle, self.icons.len() as u32).unwrap() };
+                let icon =
+                    unsafe { NotifyIcon::new(self.handle, self.icons.len() as u32).unwrap() };
                 self.icons.push(icon);
             }
-            WM_NOTIFY_ICON => {}
+            WM_NOTIFY_ICON if l_param.0 == WM_LBUTTONUP as isize => {
+                self.icons[w_param.0].update("Someone clicked on me", "10");
+            }
             WM_PAINT => {
                 // SAFETY: We are responding to the WM_PAINT message
-                let pc = unsafe { PaintContext::for_window(self.handle) };
+                let mut pc = unsafe { PaintContext::for_window(self.handle) };
                 let text = Self::get_text().unwrap_or_else(|e| format!("Error: {}", e));
                 pc.draw_text(&text, 0, 0);
             }
@@ -144,7 +152,9 @@ impl Drop for MainWindow {
     fn drop(&mut self) {
         // The icons should get dropped before the window
         self.icons.clear();
-        // SAFETY: MainWindow always contains a valid `handle`
-        let _ = unsafe { DestroyWindow(self.handle) };
+        if !self.handle.is_invalid() {
+            // SAFETY: MainWindow can only contain a handle that it owns
+            let _ = unsafe { DestroyWindow(self.handle) };
+        }
     }
 }
