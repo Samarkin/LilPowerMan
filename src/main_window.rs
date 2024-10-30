@@ -1,28 +1,35 @@
-use crate::battery::BatteriesIterator;
+use crate::battery::Battery;
 use crate::icons::{NotifyIcon, WM_NOTIFY_ICON};
 use crate::ryzenadj::RyzenAdj;
 use crate::winapi::{get_default_cursor, get_instance_handle, PaintContext};
 use std::marker::PhantomData;
+use std::mem::take;
 use std::ops::DerefMut;
 use std::pin::Pin;
 use windows::core::{w, Error};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, GetWindowLongPtrW, PostQuitMessage,
-    RegisterClassExW, SetProcessDPIAware, SetWindowLongPtrW, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW,
-    CW_USEDEFAULT, GWLP_USERDATA, WINDOW_EX_STYLE, WM_CREATE, WM_DESTROY, WM_LBUTTONUP,
-    WM_NCCREATE, WM_PAINT, WNDCLASSEXW, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, GetWindowLongPtrW, KillTimer, PostQuitMessage,
+    RegisterClassExW, SetProcessDPIAware, SetTimer, SetWindowLongPtrW, CREATESTRUCTW, CS_HREDRAW,
+    CS_VREDRAW, CW_USEDEFAULT, GWLP_USERDATA, WINDOW_EX_STYLE, WM_CREATE, WM_DESTROY, WM_NCCREATE,
+    WM_PAINT, WM_TIMER, WNDCLASSEXW, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
 };
+
+const IDT_MAIN_TIMER: usize = 0;
 
 pub struct MainWindow {
     handle: HWND,
-    icons: Vec<NotifyIcon>,
+    ryzen_adj: Option<RyzenAdj>,
+    battery: Option<Battery>,
+    tdp_icon: Option<NotifyIcon>,
+    charge_icon: Option<NotifyIcon>,
+    live_timers: Vec<usize>,
     // This marks MainWindow as !Send and !Sync
     _marker: PhantomData<*const ()>,
 }
 
 impl MainWindow {
-    pub fn new() -> Pin<Box<MainWindow>> {
+    pub fn new(ryzen_adj: Option<RyzenAdj>, battery: Option<Battery>) -> Pin<Box<MainWindow>> {
         assert_ne!(
             unsafe { SetProcessDPIAware() }.0,
             0,
@@ -47,7 +54,11 @@ impl MainWindow {
         }
         let mut window = Box::pin(MainWindow {
             handle: HWND::default(),
-            icons: vec![],
+            ryzen_adj,
+            battery,
+            tdp_icon: None,
+            charge_icon: None,
+            live_timers: vec![],
             _marker: PhantomData,
         });
         // SAFETY: The function is sound as long as all arguments are valid
@@ -75,36 +86,95 @@ impl MainWindow {
         window
     }
 
-    fn get_text() -> Result<String, Box<dyn std::error::Error>> {
+    fn get_text(&self) -> Result<String, Box<dyn std::error::Error>> {
         let mut text = String::new();
-        text += &format!(
-            "Current TDP: {} W",
-            RyzenAdj::new()?.get_table()?.get_fast_limit()
-        );
-        for b in BatteriesIterator::new()? {
-            text += &format!(", Battery charge rate {} mW", b?.get_charge_rate()?);
+        if let Some(ryzen_adj) = &self.ryzen_adj {
+            text += &format!("Current TDP: {} W", ryzen_adj.get_table()?.get_fast_limit());
+        }
+        if let Some(battery) = &self.battery {
+            text += &format!(", Battery charge rate {} mW", battery.get_charge_rate()?);
         }
         Ok(text)
+    }
+
+    fn update_tdp_icon(icon: &mut NotifyIcon, ryzen_adj: &RyzenAdj) {
+        match ryzen_adj.get_table() {
+            Ok(table) => {
+                let fast_limit = table.get_fast_limit();
+                icon.update(
+                    format!("Current TDP: {} W", fast_limit).as_str(),
+                    format!("{}", fast_limit as i32).as_str(),
+                );
+            }
+            Err(err) => icon.update(
+                format!("Failed to get TDP information: {}", err).as_str(),
+                "🛑",
+            ),
+        }
+    }
+
+    fn update_charge_icon(icon: &mut NotifyIcon, battery: &Battery) {
+        match battery.get_charge_rate() {
+            Ok(charge_rate) => icon.update(
+                format!("Battery charge rate: {} mW", charge_rate).as_str(),
+                format!("{}", charge_rate / 1000).as_str(),
+            ),
+            Err(err) => icon.update(
+                format!("Failed to get battery information: {}", err).as_str(),
+                "🛑",
+            ),
+        }
     }
 
     fn process_message(&mut self, message: u32, w_param: WPARAM, l_param: LPARAM) -> Option<isize> {
         match message {
             WM_CREATE => {
-                // SAFETY: Window handle is valid, number of icons is not expected to reach u32::MAX
-                let icon =
-                    unsafe { NotifyIcon::new(self.handle, self.icons.len() as u32).unwrap() };
-                self.icons.push(icon);
+                let mut id = 0;
+                if let Some(ryzen_adj) = &self.ryzen_adj {
+                    // SAFETY: Window handle is valid, number of icons is not expected to reach u32::MAX
+                    let mut tdp_icon = unsafe { NotifyIcon::new(self.handle, id).unwrap() };
+                    Self::update_tdp_icon(&mut tdp_icon, ryzen_adj);
+                    self.tdp_icon = Some(tdp_icon);
+                    id += 1;
+                }
+                if let Some(battery) = &self.battery {
+                    let mut charge_icon = unsafe { NotifyIcon::new(self.handle, id).unwrap() };
+                    Self::update_charge_icon(&mut charge_icon, battery);
+                    self.charge_icon = Some(charge_icon);
+                    id += 1;
+                }
+                let result = unsafe { SetTimer(self.handle, IDT_MAIN_TIMER, 1000, None) };
+                if result == 0 {
+                    panic!("Set timer failed: {}", Error::from_win32());
+                }
+                self.live_timers.push(IDT_MAIN_TIMER);
             }
-            WM_NOTIFY_ICON if l_param.0 == WM_LBUTTONUP as isize => {
-                self.icons[w_param.0].update("Someone clicked on me", "10");
+            WM_TIMER if w_param.0 == IDT_MAIN_TIMER => {
+                if let Some(icon) = &mut self.tdp_icon {
+                    if let Some(ryzen_adj) = &self.ryzen_adj {
+                        Self::update_tdp_icon(icon, ryzen_adj);
+                    }
+                }
+                if let Some(icon) = &mut self.charge_icon {
+                    if let Some(battery) = &self.battery {
+                        Self::update_charge_icon(icon, battery);
+                    }
+                }
+            }
+            WM_NOTIFY_ICON => {
+                // TODO
             }
             WM_PAINT => {
                 // SAFETY: We are responding to the WM_PAINT message
                 let mut pc = unsafe { PaintContext::for_window(self.handle) };
-                let text = Self::get_text().unwrap_or_else(|e| format!("Error: {}", e));
+                let text = self.get_text().unwrap_or_else(|e| format!("Error: {}", e));
                 pc.draw_text(&text, 0, 0);
             }
             WM_DESTROY => {
+                for timer in take(&mut self.live_timers) {
+                    // SAFETY: The timer was created before its id got into live timers
+                    unsafe { KillTimer(self.handle, timer).unwrap() }
+                }
                 // SAFETY: This is a typical response to WM_DESTROY message
                 unsafe { PostQuitMessage(0) }
             }
@@ -151,7 +221,8 @@ impl MainWindow {
 impl Drop for MainWindow {
     fn drop(&mut self) {
         // The icons should get dropped before the window
-        self.icons.clear();
+        self.tdp_icon = None;
+        self.charge_icon = None;
         if !self.handle.is_invalid() {
             // SAFETY: MainWindow can only contain a handle that it owns
             let _ = unsafe { DestroyWindow(self.handle) };

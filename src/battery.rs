@@ -53,20 +53,24 @@ pub struct BatteriesIterator {
 }
 
 impl BatteriesIterator {
-    pub fn new() -> Result<Self, Error> {
+    pub fn new() -> Self {
         // SAFETY: using hardcoded GUID and correct flags to get device info set
+        // The call is not expected to fail
         let device_info_set_handle = unsafe {
-            Owned::new(SetupDiGetClassDevsW(
-                Some(&GUID_DEVCLASS_BATTERY),
-                None,
-                None,
-                DIGCF_PRESENT | DIGCF_INTERFACEDEVICE,
-            )?)
+            Owned::new(
+                SetupDiGetClassDevsW(
+                    Some(&GUID_DEVCLASS_BATTERY),
+                    None,
+                    None,
+                    DIGCF_PRESENT | DIGCF_INTERFACEDEVICE,
+                )
+                .unwrap(),
+            )
         };
-        Ok(BatteriesIterator {
+        BatteriesIterator {
             device_info_set_handle,
             index: 0,
-        })
+        }
     }
 
     /// # Safety
