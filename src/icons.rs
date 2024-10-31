@@ -12,7 +12,7 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::UI::Shell::{
     Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY,
-    NOTIFYICONDATAW,
+    NIM_SETVERSION, NOTIFYICONDATAW, NOTIFYICONDATAW_0, NOTIFYICON_VERSION_4,
 };
 use windows::Win32::UI::WindowsAndMessaging::{CreateIconIndirect, HICON, ICONINFO, WM_APP};
 
@@ -133,13 +133,18 @@ impl NotifyIcon {
             uID: id,
             uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP,
             uCallbackMessage: WM_NOTIFY_ICON,
+            Anonymous: NOTIFYICONDATAW_0 {
+                uVersion: NOTIFYICON_VERSION_4,
+            },
             hIcon: *icon,
             ..Default::default()
         };
         let tip: Vec<u16> = "Hello, world".encode_utf16().collect();
         notify_icon_data.szTip[..tip.len()].copy_from_slice(&tip[..tip.len()]);
         // SAFETY: Notify icon data is a local structure
-        if unsafe { Shell_NotifyIconW(NIM_ADD, &notify_icon_data) }.0 == 0 {
+        if unsafe { Shell_NotifyIconW(NIM_ADD, &notify_icon_data) }.0 == 0
+            || unsafe { Shell_NotifyIconW(NIM_SETVERSION, &notify_icon_data) }.0 == 0
+        {
             Err(Error::from(ERROR_INVALID_PARAMETER))
         } else {
             Ok(NotifyIcon {

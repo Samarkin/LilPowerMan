@@ -6,16 +6,20 @@ use std::marker::PhantomData;
 use std::mem::take;
 use std::ops::DerefMut;
 use std::pin::Pin;
-use windows::core::{w, Error};
+use windows::core::{w, Error, Owned, PWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, GetWindowLongPtrW, KillTimer, PostQuitMessage,
-    RegisterClassExW, SetProcessDPIAware, SetTimer, SetWindowLongPtrW, CREATESTRUCTW, CS_HREDRAW,
-    CS_VREDRAW, CW_USEDEFAULT, GWLP_USERDATA, WINDOW_EX_STYLE, WM_CREATE, WM_DESTROY, WM_NCCREATE,
-    WM_PAINT, WM_TIMER, WNDCLASSEXW, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+    CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyWindow, GetWindowLongPtrW,
+    InsertMenuItemW, KillTimer, MessageBoxW, PostQuitMessage, RegisterClassExW,
+    SetForegroundWindow, SetProcessDPIAware, SetTimer, SetWindowLongPtrW, TrackPopupMenu,
+    CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, GWLP_USERDATA, MB_OK, MENUITEMINFOW,
+    MFS_CHECKED, MFS_ENABLED, MFT_STRING, MIIM_FTYPE, MIIM_ID, MIIM_STRING, TPM_LEFTBUTTON,
+    WINDOW_EX_STYLE, WM_COMMAND, WM_CREATE, WM_DESTROY, WM_NCCREATE, WM_PAINT, WM_RBUTTONUP,
+    WM_TIMER, WNDCLASSEXW, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
 };
 
 const IDT_MAIN_TIMER: usize = 0;
+const IDM_HELLO_WORLD: u32 = 123;
 
 pub struct MainWindow {
     handle: HWND,
@@ -30,11 +34,9 @@ pub struct MainWindow {
 
 impl MainWindow {
     pub fn new(ryzen_adj: Option<RyzenAdj>, battery: Option<Battery>) -> Pin<Box<MainWindow>> {
-        assert_ne!(
-            unsafe { SetProcessDPIAware() }.0,
-            0,
-            "SetProcessDPIAware failed"
-        );
+        // SAFETY: The call does not have any preconditions and is always sound
+        let result = unsafe { SetProcessDPIAware() };
+        assert_ne!(result.0, 0, "SetProcessDPIAware failed");
         let window_class_name = w!("MainWindow");
         let instance = get_instance_handle();
         let wnd_class_params = WNDCLASSEXW {
@@ -161,8 +163,50 @@ impl MainWindow {
                     }
                 }
             }
+            WM_COMMAND => {
+                let msg_source = w_param.0 as u32 >> 16;
+                let id = w_param.0 as u16 as u32;
+                if msg_source == 0 && id == IDM_HELLO_WORLD {
+                    unsafe {
+                        MessageBoxW(
+                            self.handle,
+                            w!("You clicked it!"),
+                            w!("Hello, menu item!"),
+                            MB_OK,
+                        )
+                    };
+                }
+            }
             WM_NOTIFY_ICON => {
-                // TODO
+                if let Some(icon) = &self.tdp_icon {
+                    let event = l_param.0 as u16 as u32;
+                    let id = l_param.0 as u32 >> 16;
+                    if id == icon.get_id() && event == WM_RBUTTONUP {
+                        let x = w_param.0 as i16 as i32;
+                        let y = (w_param.0 >> 16) as i16 as i32;
+                        let result = unsafe { SetForegroundWindow(self.handle) };
+                        assert_ne!(result.0, 0, "Failed to set foreground window");
+                        let menu = unsafe { Owned::new(CreatePopupMenu().unwrap()) };
+                        let mut buf: Vec<u16> = "Hello, world!".encode_utf16().collect();
+                        buf.push(0); // null-terminate
+                        let menu_item_info = MENUITEMINFOW {
+                            cbSize: size_of::<MENUITEMINFOW>() as u32,
+                            fMask: MIIM_FTYPE | MIIM_ID | MIIM_STRING,
+                            fType: MFT_STRING,
+                            fState: MFS_CHECKED | MFS_ENABLED,
+                            wID: IDM_HELLO_WORLD,
+                            dwTypeData: PWSTR(buf.as_mut_ptr()),
+                            ..Default::default()
+                        };
+                        unsafe { InsertMenuItemW(*menu, 0, true, &menu_item_info).unwrap() };
+                        let result = unsafe {
+                            TrackPopupMenu(*menu, TPM_LEFTBUTTON, x, y, 0, self.handle, None)
+                        };
+                        if result.0 == 0 {
+                            panic!("TrackPopupMenu failed: {}", Error::from_win32());
+                        }
+                    }
+                }
             }
             WM_PAINT => {
                 // SAFETY: We are responding to the WM_PAINT message
