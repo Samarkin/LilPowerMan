@@ -2,7 +2,7 @@ use crate::battery::Battery;
 use crate::icons::{NotifyIcon, WM_NOTIFY_ICON};
 use crate::menu::PopupMenu;
 use crate::ryzenadj::RyzenAdj;
-use crate::winapi::{get_default_cursor, get_instance_handle, PaintContext};
+use crate::winapi::get_instance_handle;
 use std::marker::PhantomData;
 use std::mem::take;
 use std::ops::DerefMut;
@@ -12,9 +12,8 @@ use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, GetWindowLongPtrW, KillTimer, MessageBoxW,
     PostQuitMessage, RegisterClassExW, SetProcessDPIAware, SetTimer, SetWindowLongPtrW,
-    CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, GWLP_USERDATA, MB_OK, WINDOW_EX_STYLE,
-    WM_COMMAND, WM_CREATE, WM_DESTROY, WM_NCCREATE, WM_PAINT, WM_RBUTTONUP, WM_TIMER, WNDCLASSEXW,
-    WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+    CREATESTRUCTW, CW_USEDEFAULT, GWLP_USERDATA, HWND_MESSAGE, MB_OK, WINDOW_EX_STYLE, WM_COMMAND,
+    WM_CREATE, WM_DESTROY, WM_NCCREATE, WM_RBUTTONUP, WM_TIMER, WNDCLASSEXW, WS_OVERLAPPED,
 };
 
 const IDT_MAIN_TIMER: usize = 0;
@@ -41,10 +40,8 @@ impl MainWindow {
         let instance = get_instance_handle();
         let wnd_class_params = WNDCLASSEXW {
             cbSize: size_of::<WNDCLASSEXW>() as u32,
-            style: CS_HREDRAW | CS_VREDRAW,
             lpfnWndProc: Some(Self::wnd_proc),
             hInstance: instance,
-            hCursor: get_default_cursor(),
             lpszClassName: window_class_name,
             ..Default::default()
         };
@@ -68,13 +65,13 @@ impl MainWindow {
             CreateWindowExW(
                 WINDOW_EX_STYLE::default(),
                 window_class_name,
-                w!("Hello, world"),
-                WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                w!("MainWindow"),
+                WS_OVERLAPPED,
                 CW_USEDEFAULT,
                 CW_USEDEFAULT,
-                400,
-                300,
-                None,
+                CW_USEDEFAULT,
+                CW_USEDEFAULT,
+                HWND_MESSAGE,
                 None,
                 instance,
                 Some(window.deref_mut() as *mut _ as _),
@@ -86,17 +83,6 @@ impl MainWindow {
             "Window creation did not set the handle"
         );
         window
-    }
-
-    fn get_text(&self) -> Result<String, Box<dyn std::error::Error>> {
-        let mut text = String::new();
-        if let Some(ryzen_adj) = &self.ryzen_adj {
-            text += &format!("Current TDP: {} W", ryzen_adj.get_table()?.get_fast_limit());
-        }
-        if let Some(battery) = &self.battery {
-            text += &format!(", Battery charge rate {} mW", battery.get_charge_rate()?);
-        }
-        Ok(text)
     }
 
     fn update_tdp_icon(icon: &mut NotifyIcon, ryzen_adj: &RyzenAdj) {
@@ -195,12 +181,6 @@ impl MainWindow {
                         unsafe { menu.show(x, y, self.handle) };
                     }
                 }
-            }
-            WM_PAINT => {
-                // SAFETY: We are responding to the WM_PAINT message
-                let mut pc = unsafe { PaintContext::for_window(self.handle) };
-                let text = self.get_text().unwrap_or_else(|e| format!("Error: {}", e));
-                pc.draw_text(&text, 0, 0);
             }
             WM_DESTROY => {
                 self.tdp_icon = None;
