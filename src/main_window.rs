@@ -9,13 +9,13 @@ use std::pin::Pin;
 use windows::core::{w, Error, Owned, PWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyWindow, GetWindowLongPtrW,
-    InsertMenuItemW, KillTimer, MessageBoxW, PostQuitMessage, RegisterClassExW,
+    CheckMenuItem, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyWindow,
+    GetWindowLongPtrW, InsertMenuItemW, KillTimer, MessageBoxW, PostQuitMessage, RegisterClassExW,
     SetForegroundWindow, SetProcessDPIAware, SetTimer, SetWindowLongPtrW, TrackPopupMenu,
     CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, GWLP_USERDATA, MB_OK, MENUITEMINFOW,
-    MFS_CHECKED, MFS_ENABLED, MFT_STRING, MIIM_FTYPE, MIIM_ID, MIIM_STRING, TPM_LEFTBUTTON,
-    WINDOW_EX_STYLE, WM_COMMAND, WM_CREATE, WM_DESTROY, WM_NCCREATE, WM_PAINT, WM_RBUTTONUP,
-    WM_TIMER, WNDCLASSEXW, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+    MFS_ENABLED, MFT_STRING, MF_BYCOMMAND, MF_CHECKED, MIIM_FTYPE, MIIM_ID, MIIM_STRING,
+    TPM_LEFTBUTTON, WINDOW_EX_STYLE, WM_COMMAND, WM_CREATE, WM_DESTROY, WM_NCCREATE, WM_PAINT,
+    WM_RBUTTONUP, WM_TIMER, WNDCLASSEXW, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
 };
 
 const IDT_MAIN_TIMER: usize = 0;
@@ -193,12 +193,16 @@ impl MainWindow {
                             cbSize: size_of::<MENUITEMINFOW>() as u32,
                             fMask: MIIM_FTYPE | MIIM_ID | MIIM_STRING,
                             fType: MFT_STRING,
-                            fState: MFS_CHECKED | MFS_ENABLED,
+                            fState: MFS_ENABLED,
                             wID: IDM_HELLO_WORLD,
                             dwTypeData: PWSTR(buf.as_mut_ptr()),
                             ..Default::default()
                         };
                         unsafe { InsertMenuItemW(*menu, 0, true, &menu_item_info).unwrap() };
+                        let result = unsafe {
+                            CheckMenuItem(*menu, IDM_HELLO_WORLD, MF_BYCOMMAND.0 | MF_CHECKED.0)
+                        };
+                        assert_ne!(result, u32::MAX, "CheckMenuItem failed: Item not found");
                         let result = unsafe {
                             TrackPopupMenu(*menu, TPM_LEFTBUTTON, x, y, 0, self.handle, None)
                         };
