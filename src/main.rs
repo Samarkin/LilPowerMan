@@ -3,6 +3,7 @@
 mod battery;
 mod icons;
 mod main_window;
+mod menu;
 mod ryzenadj;
 mod winapi;
 

@@ -1,25 +1,25 @@
 use crate::battery::Battery;
 use crate::icons::{NotifyIcon, WM_NOTIFY_ICON};
+use crate::menu::PopupMenu;
 use crate::ryzenadj::RyzenAdj;
 use crate::winapi::{get_default_cursor, get_instance_handle, PaintContext};
 use std::marker::PhantomData;
 use std::mem::take;
 use std::ops::DerefMut;
 use std::pin::Pin;
-use windows::core::{w, Error, Owned, PWSTR};
+use windows::core::{w, Error};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CheckMenuItem, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyWindow,
-    GetWindowLongPtrW, InsertMenuItemW, KillTimer, MessageBoxW, PostQuitMessage, RegisterClassExW,
-    SetForegroundWindow, SetProcessDPIAware, SetTimer, SetWindowLongPtrW, TrackPopupMenu,
-    CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, GWLP_USERDATA, MB_OK, MENUITEMINFOW,
-    MFS_ENABLED, MFT_STRING, MF_BYCOMMAND, MF_CHECKED, MIIM_FTYPE, MIIM_ID, MIIM_STRING,
-    TPM_LEFTBUTTON, WINDOW_EX_STYLE, WM_COMMAND, WM_CREATE, WM_DESTROY, WM_NCCREATE, WM_PAINT,
-    WM_RBUTTONUP, WM_TIMER, WNDCLASSEXW, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, GetWindowLongPtrW, KillTimer, MessageBoxW,
+    PostQuitMessage, RegisterClassExW, SetProcessDPIAware, SetTimer, SetWindowLongPtrW,
+    CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, GWLP_USERDATA, MB_OK, WINDOW_EX_STYLE,
+    WM_COMMAND, WM_CREATE, WM_DESTROY, WM_NCCREATE, WM_PAINT, WM_RBUTTONUP, WM_TIMER, WNDCLASSEXW,
+    WS_OVERLAPPEDWINDOW, WS_VISIBLE,
 };
 
 const IDT_MAIN_TIMER: usize = 0;
 const IDM_HELLO_WORLD: u32 = 123;
+const IDM_EXIT: u32 = 1;
 
 pub struct MainWindow {
     handle: HWND,
@@ -175,6 +175,9 @@ impl MainWindow {
                             MB_OK,
                         )
                     };
+                } else if msg_source == 0 && id == IDM_EXIT {
+                    // SAFETY: It is sound to destroy the window we own
+                    unsafe { DestroyWindow(self.handle).unwrap() };
                 }
             }
             WM_NOTIFY_ICON => {
@@ -184,31 +187,12 @@ impl MainWindow {
                     if id == icon.get_id() && event == WM_RBUTTONUP {
                         let x = w_param.0 as i16 as i32;
                         let y = (w_param.0 >> 16) as i16 as i32;
-                        let result = unsafe { SetForegroundWindow(self.handle) };
-                        assert_ne!(result.0, 0, "Failed to set foreground window");
-                        let menu = unsafe { Owned::new(CreatePopupMenu().unwrap()) };
-                        let mut buf: Vec<u16> = "Hello, world!".encode_utf16().collect();
-                        buf.push(0); // null-terminate
-                        let menu_item_info = MENUITEMINFOW {
-                            cbSize: size_of::<MENUITEMINFOW>() as u32,
-                            fMask: MIIM_FTYPE | MIIM_ID | MIIM_STRING,
-                            fType: MFT_STRING,
-                            fState: MFS_ENABLED,
-                            wID: IDM_HELLO_WORLD,
-                            dwTypeData: PWSTR(buf.as_mut_ptr()),
-                            ..Default::default()
-                        };
-                        unsafe { InsertMenuItemW(*menu, 0, true, &menu_item_info).unwrap() };
-                        let result = unsafe {
-                            CheckMenuItem(*menu, IDM_HELLO_WORLD, MF_BYCOMMAND.0 | MF_CHECKED.0)
-                        };
-                        assert_ne!(result, u32::MAX, "CheckMenuItem failed: Item not found");
-                        let result = unsafe {
-                            TrackPopupMenu(*menu, TPM_LEFTBUTTON, x, y, 0, self.handle, None)
-                        };
-                        if result.0 == 0 {
-                            panic!("TrackPopupMenu failed: {}", Error::from_win32());
-                        }
+
+                        let mut menu = PopupMenu::new();
+                        menu.append_menu_item("Hello, world!", IDM_HELLO_WORLD);
+                        menu.append_menu_item("E&xit", IDM_EXIT);
+                        // SAFETY: The handle points to a currently live window
+                        unsafe { menu.show(x, y, self.handle) };
                     }
                 }
             }
@@ -219,6 +203,8 @@ impl MainWindow {
                 pc.draw_text(&text, 0, 0);
             }
             WM_DESTROY => {
+                self.tdp_icon = None;
+                self.charge_icon = None;
                 for timer in take(&mut self.live_timers) {
                     // SAFETY: The timer was created before its id got into live timers
                     unsafe { KillTimer(self.handle, timer).unwrap() }
@@ -263,17 +249,5 @@ impl MainWindow {
         // SAFETY: We are in the context of message processor,
         //   validity of the arguments is guaranteed by the caller (OS)
         unsafe { DefWindowProcW(window_handle, message, w_param, l_param) }
-    }
-}
-
-impl Drop for MainWindow {
-    fn drop(&mut self) {
-        // The icons should get dropped before the window
-        self.tdp_icon = None;
-        self.charge_icon = None;
-        if !self.handle.is_invalid() {
-            // SAFETY: MainWindow can only contain a handle that it owns
-            let _ = unsafe { DestroyWindow(self.handle) };
-        }
     }
 }
