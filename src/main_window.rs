@@ -1,6 +1,12 @@
+mod controller;
+mod id;
+mod model;
+mod view;
+
+use self::controller::Controller;
+use self::view::View;
 use crate::battery::Battery;
-use crate::icons::{NotifyIcon, WM_NOTIFY_ICON};
-use crate::menu::PopupMenu;
+use crate::icons::WM_NOTIFY_ICON;
 use crate::ryzenadj::RyzenAdj;
 use crate::winapi::get_instance_handle;
 use std::marker::PhantomData;
@@ -10,23 +16,24 @@ use std::pin::Pin;
 use windows::core::{w, Error};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, GetWindowLongPtrW, KillTimer, MessageBoxW,
-    PostQuitMessage, RegisterClassExW, SetProcessDPIAware, SetTimer, SetWindowLongPtrW,
-    CREATESTRUCTW, CW_USEDEFAULT, GWLP_USERDATA, HWND_MESSAGE, MB_OK, WINDOW_EX_STYLE, WM_COMMAND,
-    WM_CREATE, WM_DESTROY, WM_NCCREATE, WM_RBUTTONUP, WM_TIMER, WNDCLASSEXW, WS_OVERLAPPED,
+    CreateWindowExW, DefWindowProcW, GetWindowLongPtrW, KillTimer, PostQuitMessage,
+    RegisterClassExW, SetProcessDPIAware, SetTimer, SetWindowLongPtrW, CREATESTRUCTW,
+    CW_USEDEFAULT, GWLP_USERDATA, HWND_MESSAGE, WINDOW_EX_STYLE, WM_COMMAND, WM_CREATE, WM_DESTROY,
+    WM_EXITMENULOOP, WM_NCCREATE, WM_RBUTTONUP, WM_TIMER, WNDCLASSEXW, WS_OVERLAPPED,
 };
 
-const IDT_MAIN_TIMER: usize = 0;
-const IDM_HELLO_WORLD: u32 = 123;
-const IDM_EXIT: u32 = 1;
+pub struct Measurements {
+    pub tdp_limit: Option<Result<u32, String>>,
+    pub charge_rate: Option<Result<i32, String>>,
+}
 
 pub struct MainWindow {
     handle: HWND,
     ryzen_adj: Option<RyzenAdj>,
     battery: Option<Battery>,
-    tdp_icon: Option<NotifyIcon>,
-    charge_icon: Option<NotifyIcon>,
-    live_timers: Vec<usize>,
+    controller: Option<Controller>,
+    view: Option<View>,
+    live_timers: Vec<id::Timer>,
     // This marks MainWindow as !Send and !Sync
     _marker: PhantomData<*const ()>,
 }
@@ -55,8 +62,8 @@ impl MainWindow {
             handle: HWND::default(),
             ryzen_adj,
             battery,
-            tdp_icon: None,
-            charge_icon: None,
+            controller: None,
+            view: None,
             live_timers: vec![],
             _marker: PhantomData,
         });
@@ -85,109 +92,74 @@ impl MainWindow {
         window
     }
 
-    fn update_tdp_icon(icon: &mut NotifyIcon, ryzen_adj: &RyzenAdj) {
-        match ryzen_adj.get_table() {
-            Ok(table) => {
-                let fast_limit = table.get_fast_limit();
-                icon.update(
-                    format!("Current TDP: {} W", fast_limit).as_str(),
-                    format!("{}", fast_limit as i32).as_str(),
-                );
-            }
-            Err(err) => icon.update(
-                format!("Failed to get TDP information: {}", err).as_str(),
-                "🛑",
-            ),
+    fn get_measurements(&self) -> Measurements {
+        Measurements {
+            tdp_limit: self.ryzen_adj.as_ref().map(|r| {
+                r.get_table()
+                    .map(|t| (t.get_fast_limit() * 1000f32) as u32)
+                    .map_err(|e| e.to_string())
+            }),
+            charge_rate: self
+                .battery
+                .as_ref()
+                .map(|b| b.get_charge_rate().map_err(|e| e.to_string())),
         }
     }
 
-    fn update_charge_icon(icon: &mut NotifyIcon, battery: &Battery) {
-        match battery.get_charge_rate() {
-            Ok(charge_rate) => icon.update(
-                format!("Battery charge rate: {} mW", charge_rate).as_str(),
-                format!("{}", charge_rate / 1000).as_str(),
-            ),
-            Err(err) => icon.update(
-                format!("Failed to get battery information: {}", err).as_str(),
-                "🛑",
-            ),
+    fn with_controller(&mut self, f: impl FnOnce(&mut Controller)) {
+        if let Some(controller) = &mut self.controller {
+            f(controller);
+            if let Some(view) = &mut self.view {
+                let model = controller.get_model();
+                view.update(model);
+            }
         }
     }
 
     fn process_message(&mut self, message: u32, w_param: WPARAM, l_param: LPARAM) -> Option<isize> {
         match message {
             WM_CREATE => {
-                let mut id = 0;
-                if let Some(ryzen_adj) = &self.ryzen_adj {
-                    // SAFETY: Window handle is valid, number of icons is not expected to reach u32::MAX
-                    let mut tdp_icon = unsafe { NotifyIcon::new(self.handle, id).unwrap() };
-                    Self::update_tdp_icon(&mut tdp_icon, ryzen_adj);
-                    self.tdp_icon = Some(tdp_icon);
-                    id += 1;
-                }
-                if let Some(battery) = &self.battery {
-                    let mut charge_icon = unsafe { NotifyIcon::new(self.handle, id).unwrap() };
-                    Self::update_charge_icon(&mut charge_icon, battery);
-                    self.charge_icon = Some(charge_icon);
-                    id += 1;
-                }
-                let result = unsafe { SetTimer(self.handle, IDT_MAIN_TIMER, 1000, None) };
+                // SAFETY: The window handle is valid now and will stay valid
+                //   until view and controller are dropped
+                self.view = Some(unsafe { View::new(self.handle) });
+                self.controller = Some(unsafe { Controller::new(self.handle) });
+                let result = unsafe { SetTimer(self.handle, id::Timer::Main as usize, 1000, None) };
                 if result == 0 {
                     panic!("Set timer failed: {}", Error::from_win32());
                 }
-                self.live_timers.push(IDT_MAIN_TIMER);
+                self.live_timers.push(id::Timer::Main);
             }
-            WM_TIMER if w_param.0 == IDT_MAIN_TIMER => {
-                if let Some(icon) = &mut self.tdp_icon {
-                    if let Some(ryzen_adj) = &self.ryzen_adj {
-                        Self::update_tdp_icon(icon, ryzen_adj);
-                    }
-                }
-                if let Some(icon) = &mut self.charge_icon {
-                    if let Some(battery) = &self.battery {
-                        Self::update_charge_icon(icon, battery);
-                    }
+            WM_TIMER => {
+                if w_param.0 == id::Timer::Main as usize {
+                    let measurements = self.get_measurements();
+                    self.with_controller(|c| c.on_timer(measurements));
                 }
             }
             WM_COMMAND => {
                 let msg_source = w_param.0 as u32 >> 16;
                 let id = w_param.0 as u16 as u32;
-                if msg_source == 0 && id == IDM_HELLO_WORLD {
-                    unsafe {
-                        MessageBoxW(
-                            self.handle,
-                            w!("You clicked it!"),
-                            w!("Hello, menu item!"),
-                            MB_OK,
-                        )
-                    };
-                } else if msg_source == 0 && id == IDM_EXIT {
-                    // SAFETY: It is sound to destroy the window we own
-                    unsafe { DestroyWindow(self.handle).unwrap() };
+                if msg_source == 0 {
+                    self.with_controller(|c| c.on_menu_item_click(id));
                 }
             }
+            WM_EXITMENULOOP => {
+                self.with_controller(|c| c.on_menu_dismissed());
+            }
             WM_NOTIFY_ICON => {
-                if let Some(icon) = &self.tdp_icon {
-                    let event = l_param.0 as u16 as u32;
-                    let id = l_param.0 as u32 >> 16;
-                    if id == icon.get_id() && event == WM_RBUTTONUP {
-                        let x = w_param.0 as i16 as i32;
-                        let y = (w_param.0 >> 16) as i16 as i32;
-
-                        let mut menu = PopupMenu::new();
-                        menu.append_menu_item("Hello, world!", IDM_HELLO_WORLD);
-                        menu.append_menu_item("E&xit", IDM_EXIT);
-                        // SAFETY: The handle points to a currently live window
-                        unsafe { menu.show(x, y, self.handle) };
-                    }
+                let event = l_param.0 as u16 as u32;
+                let id = l_param.0 as u32 >> 16;
+                if event == WM_RBUTTONUP {
+                    let x = w_param.0 as i16 as i32;
+                    let y = (w_param.0 >> 16) as i16 as i32;
+                    self.with_controller(|c| c.on_notify_icon_click(id, x, y));
                 }
             }
             WM_DESTROY => {
-                self.tdp_icon = None;
-                self.charge_icon = None;
+                self.view = None;
+                self.controller = None;
                 for timer in take(&mut self.live_timers) {
                     // SAFETY: The timer was created before its id got into live timers
-                    unsafe { KillTimer(self.handle, timer).unwrap() }
+                    unsafe { KillTimer(self.handle, timer as usize).unwrap() }
                 }
                 // SAFETY: This is a typical response to WM_DESTROY message
                 unsafe { PostQuitMessage(0) }

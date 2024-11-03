@@ -66,7 +66,8 @@ impl PopupMenu {
     ///
     /// # Notes
     ///
-    /// The call does not return until the menu is dismissed
+    /// The call does not return until the menu is dismissed,
+    /// i.e. it starts a nested Windows event loop and could unintentionally result in recursion.
     ///
     /// # Safety
     ///

@@ -155,10 +155,6 @@ impl NotifyIcon {
         }
     }
 
-    pub fn get_id(&self) -> u32 {
-        self.id
-    }
-
     pub fn update(&mut self, tip: &str, icon: &str) {
         let icon = self.icon_factory.render_icon(icon);
         let mut notify_icon_data = NOTIFYICONDATAW {
