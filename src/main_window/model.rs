@@ -1,13 +1,14 @@
 #[derive(Copy, Clone, PartialEq)]
-pub enum TdpIconColor {
+pub enum TdpState {
     Tracking,
-    Forcing,
+    Forcing(u32),
 }
 
 #[derive(Clone, PartialEq)]
-pub struct TdpIconModel {
+pub struct TdpModel {
     pub value: Result<u32, String>,
-    pub color: TdpIconColor,
+    pub state: TdpState,
+    pub menu_items: Vec<u32>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -22,10 +23,10 @@ pub struct PopupMenuModel {
     pub menu: PopupMenuType,
 }
 
-/// Model defines the visual state of the application.
+/// Model defines the current state of the application.
 #[derive(Clone, PartialEq)]
 pub struct Model {
-    pub tdp_icon: Option<TdpIconModel>,
+    pub tdp: Option<TdpModel>,
     pub charge_icon: Option<Result<i32, String>>,
     pub popup_menu: Option<PopupMenuModel>,
 }
@@ -33,9 +34,23 @@ pub struct Model {
 impl Model {
     pub fn new() -> Self {
         Model {
-            tdp_icon: None,
+            tdp: None,
             charge_icon: None,
             popup_menu: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_derived_eq() {
+        assert!(TdpState::Tracking == TdpState::Tracking);
+        assert!(TdpState::Forcing(10) == TdpState::Forcing(10));
+
+        assert!(TdpState::Tracking != TdpState::Forcing(10));
+        assert!(TdpState::Forcing(10) != TdpState::Forcing(20));
     }
 }

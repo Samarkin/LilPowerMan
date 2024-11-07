@@ -5,8 +5,9 @@ pub enum Timer {
 
 #[repr(u32)]
 pub enum MenuItem {
-    HelloWorld = 123,
     Exit = 1,
+    Observe = 2,
+    SetTdpBegin = 256,
 }
 
 #[repr(u32)]

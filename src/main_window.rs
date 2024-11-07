@@ -5,9 +5,7 @@ mod view;
 
 use self::controller::Controller;
 use self::view::View;
-use crate::battery::Battery;
 use crate::icons::WM_NOTIFY_ICON;
-use crate::ryzenadj::RyzenAdj;
 use crate::winapi::get_instance_handle;
 use std::marker::PhantomData;
 use std::mem::take;
@@ -22,15 +20,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_EXITMENULOOP, WM_NCCREATE, WM_RBUTTONUP, WM_TIMER, WNDCLASSEXW, WS_OVERLAPPED,
 };
 
-pub struct Measurements {
-    pub tdp_limit: Option<Result<u32, String>>,
-    pub charge_rate: Option<Result<i32, String>>,
-}
-
 pub struct MainWindow {
     handle: HWND,
-    ryzen_adj: Option<RyzenAdj>,
-    battery: Option<Battery>,
     controller: Option<Controller>,
     view: Option<View>,
     live_timers: Vec<id::Timer>,
@@ -39,7 +30,7 @@ pub struct MainWindow {
 }
 
 impl MainWindow {
-    pub fn new(ryzen_adj: Option<RyzenAdj>, battery: Option<Battery>) -> Pin<Box<MainWindow>> {
+    pub fn new() -> Pin<Box<MainWindow>> {
         // SAFETY: The call does not have any preconditions and is always sound
         let result = unsafe { SetProcessDPIAware() };
         assert_ne!(result.0, 0, "SetProcessDPIAware failed");
@@ -60,8 +51,6 @@ impl MainWindow {
         }
         let mut window = Box::pin(MainWindow {
             handle: HWND::default(),
-            ryzen_adj,
-            battery,
             controller: None,
             view: None,
             live_timers: vec![],
@@ -92,20 +81,6 @@ impl MainWindow {
         window
     }
 
-    fn get_measurements(&self) -> Measurements {
-        Measurements {
-            tdp_limit: self.ryzen_adj.as_ref().map(|r| {
-                r.get_table()
-                    .map(|t| (t.get_fast_limit() * 1000f32) as u32)
-                    .map_err(|e| e.to_string())
-            }),
-            charge_rate: self
-                .battery
-                .as_ref()
-                .map(|b| b.get_charge_rate().map_err(|e| e.to_string())),
-        }
-    }
-
     fn with_controller(&mut self, f: impl FnOnce(&mut Controller)) {
         if let Some(controller) = &mut self.controller {
             f(controller);
@@ -131,8 +106,7 @@ impl MainWindow {
             }
             WM_TIMER => {
                 if w_param.0 == id::Timer::Main as usize {
-                    let measurements = self.get_measurements();
-                    self.with_controller(|c| c.on_timer(measurements));
+                    self.with_controller(|c| c.on_timer());
                 }
             }
             WM_COMMAND => {

@@ -83,6 +83,18 @@ struct Native {
     get_fast_limit: Symbol<unsafe extern "C" fn(RyzenAccess) -> f32>,
     /// # Safety
     ///
+    /// Caller should ensure library is still loaded and `RyzenAccess` instance has not been cleaned up.
+    set_stapm_limit: Symbol<unsafe extern "C" fn(RyzenAccess, u32) -> i32>,
+    /// # Safety
+    ///
+    /// Caller should ensure library is still loaded and `RyzenAccess` instance has not been cleaned up.
+    set_fast_limit: Symbol<unsafe extern "C" fn(RyzenAccess, u32) -> i32>,
+    /// # Safety
+    ///
+    /// Caller should ensure library is still loaded and `RyzenAccess` instance has not been cleaned up.
+    set_slow_limit: Symbol<unsafe extern "C" fn(RyzenAccess, u32) -> i32>,
+    /// # Safety
+    ///
     /// Caller should ensure library is still loaded.
     /// Caller should not call this more than once per `RyzenAccess` instance.
     cleanup_ryzenadj: Symbol<unsafe extern "C" fn(RyzenAccess)>,
@@ -93,11 +105,13 @@ pub struct RyzenAdjTable<'lib> {
 }
 
 impl<'lib> RyzenAdjTable<'lib> {
-    pub fn get_fast_limit(&self) -> f32 {
+    /// Returns current TDP fast limit in milliwatts.
+    pub fn get_fast_limit(&self) -> u32 {
         // SAFETY: Validity of Library and `RyzenAccess` pointers is guaranteed
         // for the lifetime of `RyzenAdj` instance
         // The table has been refreshed as part of `RyzenAdjTable` initialization.
-        unsafe { (self.main.native.get_fast_limit)(self.main.ry) }
+        let value = unsafe { (self.main.native.get_fast_limit)(self.main.ry) };
+        (value * 1000f32) as u32
     }
 }
 
@@ -129,6 +143,9 @@ impl RyzenAdj {
                 cleanup_ryzenadj: get_native_symbol(&library, b"cleanup_ryzenadj")?,
                 refresh_table: get_native_symbol(&library, b"refresh_table")?,
                 get_fast_limit: get_native_symbol(&library, b"get_fast_limit")?,
+                set_fast_limit: get_native_symbol(&library, b"set_fast_limit")?,
+                set_slow_limit: get_native_symbol(&library, b"set_slow_limit")?,
+                set_stapm_limit: get_native_symbol(&library, b"set_stapm_limit")?,
             }
         };
         // SAFETY: The library is still loaded in memory
@@ -144,11 +161,25 @@ impl RyzenAdj {
         }
     }
 
+    /// Provides access to the refreshed table of CPU information.
     pub fn get_table(&self) -> Result<RyzenAdjTable, Error> {
         // SAFETY: Validity of Library and `RyzenAccess` pointers is guaranteed
         // for the lifetime of `RyzenAdj` instance
         Error::check(unsafe { (self.native.refresh_table)(self.ry) })?;
         Ok(RyzenAdjTable { main: self })
+    }
+
+    /// Tries to change the TDP limit to the provided value in milliwatts.
+    /// This action invalidates the table, thus it requires a unique reference to `RyzenAdj`.
+    pub fn set_all_limits(&mut self, value: u32) -> Result<(), Error> {
+        // SAFETY: Validity of Library and `RyzenAccess` pointers is guaranteed
+        // for the lifetime of `RyzenAdj` instance
+        unsafe {
+            Error::check((self.native.set_stapm_limit)(self.ry, value))?;
+            Error::check((self.native.set_slow_limit)(self.ry, value))?;
+            Error::check((self.native.set_fast_limit)(self.ry, value))?;
+        }
+        Ok(())
     }
 }
 
