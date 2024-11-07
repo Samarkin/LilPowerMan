@@ -1,3 +1,4 @@
+pub mod colors;
 mod dc;
 mod paint;
 

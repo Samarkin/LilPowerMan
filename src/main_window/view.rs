@@ -2,6 +2,7 @@ use super::id;
 use super::model::{Model, PopupMenuType, TdpModel, TdpState};
 use crate::icons::NotifyIcon;
 use crate::menu::PopupMenu;
+use crate::winapi::colors::{COLOR_BLACK, COLOR_CYAN, COLOR_GREEN, COLOR_RED, COLOR_WHITE};
 use std::mem::replace;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::EndMenu;
@@ -80,12 +81,20 @@ impl View {
                 tdp_icon.update(
                     format!("Current TDP: {} mW", tdp_limit).as_str(),
                     format!("{}", tdp_limit / 1000).as_str(),
+                    COLOR_BLACK,
+                    if model.state == TdpState::Tracking {
+                        COLOR_CYAN
+                    } else {
+                        COLOR_WHITE
+                    },
                 );
             }
             Err(err) => {
                 tdp_icon.update(
                     format!("Failed to get TDP information: {}", err).as_str(),
                     "🛑",
+                    COLOR_RED,
+                    COLOR_WHITE,
                 );
             }
         }
@@ -122,16 +131,32 @@ impl View {
             return;
         }
         match &model {
-            &Ok(charge_rate) => {
+            Ok(charge_rate) => {
+                let is_charging = *charge_rate >= 0;
+                let abs_rate = charge_rate.abs();
+                let is_single_digit = abs_rate < 10000;
                 charge_icon.update(
                     format!("Battery charge rate: {} mW", charge_rate).as_str(),
-                    format!("{}", charge_rate / 1000).as_str(),
+                    if is_single_digit {
+                        format!("{}.{}", abs_rate / 1000, (abs_rate / 100) % 10)
+                    } else {
+                        format!("{}", abs_rate / 1000)
+                    }
+                    .as_str(),
+                    if is_charging {
+                        COLOR_BLACK
+                    } else {
+                        COLOR_WHITE
+                    },
+                    if is_charging { COLOR_GREEN } else { COLOR_RED },
                 );
             }
             Err(err) => {
                 charge_icon.update(
                     format!("Failed to get battery information: {}", err).as_str(),
                     "🛑",
+                    COLOR_RED,
+                    COLOR_WHITE,
                 );
             }
         }

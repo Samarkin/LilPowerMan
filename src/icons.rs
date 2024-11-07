@@ -1,14 +1,14 @@
+use crate::winapi::colors::{COLOR_BLACK, COLOR_WHITE};
 use crate::winapi::{AcquiredDC, PaintContext};
 use std::cmp::min;
 use std::ffi::c_void;
 use std::ptr::null_mut;
 use windows::core::{Error, Owned, Result};
-use windows::Win32::Foundation::{BOOL, ERROR_INVALID_PARAMETER, HWND, RECT};
+use windows::Win32::Foundation::{BOOL, COLORREF, ERROR_INVALID_PARAMETER, HWND, RECT};
 use windows::Win32::Graphics::Gdi::{
-    CreateBitmap, CreateDIBSection, CreateFontIndirectW, GetSysColorBrush, ANSI_CHARSET,
-    BITMAPINFO, BITMAPV5HEADER, BI_RGB, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, COLOR_WINDOW,
-    DIB_RGB_COLORS, FF_SWISS, FW_BOLD, HBITMAP, HFONT, LOGFONTW, OUT_OUTLINE_PRECIS,
-    VARIABLE_PITCH,
+    CreateBitmap, CreateDIBSection, CreateFontIndirectW, CreateSolidBrush, ANSI_CHARSET,
+    BITMAPINFO, BITMAPV5HEADER, BI_RGB, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, DIB_RGB_COLORS,
+    FF_SWISS, FW_BOLD, HBITMAP, HFONT, LOGFONTW, OUT_OUTLINE_PRECIS, VARIABLE_PITCH,
 };
 use windows::Win32::UI::Shell::{
     Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY,
@@ -31,7 +31,7 @@ impl IconFactory {
 
     fn create_font() -> Owned<HFONT> {
         let mut log_font = LOGFONTW {
-            lfHeight: 32,
+            lfHeight: 30,
             lfWeight: FW_BOLD.0 as i32,
             lfCharSet: ANSI_CHARSET,
             lfOutPrecision: OUT_OUTLINE_PRECIS,
@@ -48,15 +48,12 @@ impl IconFactory {
         unsafe { Owned::new(font) }
     }
 
-    fn paint_on_bitmap(&self, bitmap: &Owned<HBITMAP>, text: &str) {
+    fn paint_on_bitmap(&self, bitmap: &Owned<HBITMAP>, text: &str, fg: COLORREF, bg: COLORREF) {
         // SAFETY: Owned bitmap is guaranteed to not be destroyed yet.
         let mut pc = unsafe { PaintContext::for_bitmap(**bitmap) };
-        // SAFETY: Using constant system color that is guaranteed to be valid
-        let brush = unsafe { GetSysColorBrush(COLOR_WINDOW) };
-        assert!(
-            !brush.is_invalid(),
-            "GetSysColorBrush returned invalid brush"
-        );
+        // SAFETY: The call is sound regardless of the arguments
+        let bg_brush = unsafe { Owned::new(CreateSolidBrush(bg)) };
+        assert!(!bg_brush.is_invalid(), "Failed to create brush");
         pc.fill_rect(
             &RECT {
                 left: 0,
@@ -64,13 +61,15 @@ impl IconFactory {
                 top: 0,
                 bottom: 32,
             },
-            brush,
+            *bg_brush,
         );
         pc.set_font(&self.font);
+        pc.set_text_color(fg);
+        pc.set_bg_color(bg);
         pc.draw_text(text, 0, 0);
     }
 
-    pub fn render_icon(&self, text: &str) -> Owned<HICON> {
+    pub fn render_icon(&self, text: &str, fg: COLORREF, bg: COLORREF) -> Owned<HICON> {
         let header = BITMAPV5HEADER {
             bV5Size: size_of::<BITMAPV5HEADER>() as u32,
             bV5Width: 32,
@@ -97,7 +96,7 @@ impl IconFactory {
                 .unwrap(),
             )
         };
-        self.paint_on_bitmap(&bitmap, text);
+        self.paint_on_bitmap(&bitmap, text, fg, bg);
         // SAFETY: Passing None instead of a pointer
         let mask = unsafe { Owned::new(CreateBitmap(32, 32, 1, 1, None)) };
         assert!(!mask.is_invalid(), "Failed to create the mask bitmap");
@@ -126,7 +125,7 @@ impl NotifyIcon {
     /// for the entire lifetime of the returned instance.
     pub unsafe fn new(window: HWND, id: u32) -> Result<NotifyIcon> {
         let icon_factory = IconFactory::new();
-        let icon = icon_factory.render_icon("⏳");
+        let icon = icon_factory.render_icon("⏳", COLOR_BLACK, COLOR_WHITE);
         let mut notify_icon_data = NOTIFYICONDATAW {
             cbSize: size_of::<NOTIFYICONDATAW>() as u32,
             hWnd: window,
@@ -155,8 +154,8 @@ impl NotifyIcon {
         }
     }
 
-    pub fn update(&mut self, tip: &str, icon: &str) {
-        let icon = self.icon_factory.render_icon(icon);
+    pub fn update(&mut self, tip: &str, icon: &str, fg: COLORREF, bg: COLORREF) {
+        let icon = self.icon_factory.render_icon(icon, fg, bg);
         let mut notify_icon_data = NOTIFYICONDATAW {
             cbSize: size_of::<NOTIFYICONDATAW>() as u32,
             hWnd: self.window,

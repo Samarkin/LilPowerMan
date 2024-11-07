@@ -1,8 +1,9 @@
 use windows::core::Owned;
-use windows::Win32::Foundation::{HWND, RECT};
+use windows::Win32::Foundation::{COLORREF, HWND, RECT};
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, CreateCompatibleDC, DeleteDC, EndPaint, FillRect, GetSysColorBrush, SelectObject,
-    TextOutW, COLOR_WINDOW, HBITMAP, HBRUSH, HDC, HFONT, PAINTSTRUCT,
+    SetBkColor, SetTextColor, TextOutW, CLR_INVALID, COLOR_WINDOW, HBITMAP, HBRUSH, HDC, HFONT,
+    PAINTSTRUCT,
 };
 
 enum DeviceContextSource {
@@ -76,6 +77,18 @@ impl PaintContext {
     {
         // SAFETY: We verified that the caller owns the font that will stay valid long enough
         unsafe { SelectObject(self.hdc, **font) };
+    }
+
+    pub fn set_text_color(&mut self, color: COLORREF) {
+        // SAFETY: HDC is valid
+        let prev = unsafe { SetTextColor(self.hdc, color) };
+        assert_ne!(prev.0, CLR_INVALID, "Failed to set text color");
+    }
+
+    pub fn set_bg_color(&mut self, color: COLORREF) {
+        // SAFETY: HDC is valid
+        let prev = unsafe { SetBkColor(self.hdc, color) };
+        assert_ne!(prev.0, CLR_INVALID, "Failed to set background color");
     }
 
     pub fn draw_text(&mut self, text: &str, x: i32, y: i32) {
