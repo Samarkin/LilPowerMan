@@ -1,28 +1,30 @@
 use super::id;
 use super::model::{Model, PopupMenuType, TdpModel, TdpState};
+use crate::gdip::{Color, GdiPlus};
 use crate::icons::NotifyIcon;
 use crate::menu::PopupMenu;
-use crate::winapi::colors::{COLOR_BLACK, COLOR_CYAN, COLOR_GREEN, COLOR_RED, COLOR_WHITE};
 use std::mem::replace;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::EndMenu;
 
 /// View owns the UI components and renders model in the window.
-pub struct View {
+pub struct View<'gdip> {
     window: HWND,
+    gdi_plus: &'gdip GdiPlus,
     model: Model,
-    tdp_icon: Option<NotifyIcon>,
+    tdp_icon: Option<NotifyIcon<'gdip>>,
     tdp_icon_popup_menu: Option<PopupMenu>,
-    charge_icon: Option<NotifyIcon>,
+    charge_icon: Option<NotifyIcon<'gdip>>,
 }
 
-impl View {
+impl<'gdip> View<'gdip> {
     /// # Safety
     ///
     /// The window handle should stay valid for the entire lifetime of the retutned instance.
-    pub unsafe fn new(window: HWND) -> Self {
+    pub unsafe fn new(window: HWND, gdi_plus: &'gdip GdiPlus) -> Self {
         View {
             window,
+            gdi_plus,
             model: Model::new(),
             tdp_icon: None,
             tdp_icon_popup_menu: None,
@@ -43,7 +45,8 @@ impl View {
         if let Some(charge_icon_model) = &new_model.charge_icon {
             // SAFETY: Window handle's validity is guaranteed by the owner
             let charge_icon = self.charge_icon.get_or_insert_with(|| unsafe {
-                NotifyIcon::new(self.window, id::NotifyIcon::ChargeRate as _).unwrap()
+                NotifyIcon::new(self.window, id::NotifyIcon::ChargeRate as _, self.gdi_plus)
+                    .unwrap()
             });
             Self::update_charge_icon(charge_icon, &old_model.charge_icon, charge_icon_model);
         } else {
@@ -74,18 +77,17 @@ impl View {
         }
         // SAFETY: Window handle's validity is guaranteed by the owner
         let tdp_icon = self.tdp_icon.get_or_insert_with(|| unsafe {
-            NotifyIcon::new(self.window, id::NotifyIcon::TdpLimit as _).unwrap()
+            NotifyIcon::new(self.window, id::NotifyIcon::TdpLimit as _, self.gdi_plus).unwrap()
         });
         match model.value {
             Ok(ref tdp_limit) => {
                 tdp_icon.update(
                     format!("Current TDP: {} mW", tdp_limit).as_str(),
                     format!("{}", tdp_limit / 1000).as_str(),
-                    COLOR_BLACK,
                     if model.state == TdpState::Tracking {
-                        COLOR_CYAN
+                        Color::CYAN
                     } else {
-                        COLOR_WHITE
+                        Color::WHITE
                     },
                 );
             }
@@ -93,8 +95,7 @@ impl View {
                 tdp_icon.update(
                     format!("Failed to get TDP information: {}", err).as_str(),
                     "🛑",
-                    COLOR_RED,
-                    COLOR_WHITE,
+                    Color::RED,
                 );
             }
         }
@@ -144,19 +145,17 @@ impl View {
                     }
                     .as_str(),
                     if is_charging {
-                        COLOR_BLACK
+                        Color::GREEN
                     } else {
-                        COLOR_WHITE
+                        Color::WHITE
                     },
-                    if is_charging { COLOR_GREEN } else { COLOR_RED },
                 );
             }
             Err(err) => {
                 charge_icon.update(
                     format!("Failed to get battery information: {}", err).as_str(),
                     "🛑",
-                    COLOR_RED,
-                    COLOR_WHITE,
+                    Color::RED,
                 );
             }
         }

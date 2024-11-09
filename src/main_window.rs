@@ -5,6 +5,7 @@ mod view;
 
 use self::controller::Controller;
 use self::view::View;
+use crate::gdip::GdiPlus;
 use crate::icons::WM_NOTIFY_ICON;
 use crate::winapi::get_instance_handle;
 use std::marker::PhantomData;
@@ -20,17 +21,18 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_EXITMENULOOP, WM_NCCREATE, WM_RBUTTONUP, WM_TIMER, WNDCLASSEXW, WS_OVERLAPPED,
 };
 
-pub struct MainWindow {
+pub struct MainWindow<'gdip> {
     handle: HWND,
+    gdi_plus: &'gdip GdiPlus,
     controller: Option<Controller>,
-    view: Option<View>,
+    view: Option<View<'gdip>>,
     live_timers: Vec<id::Timer>,
     // This marks MainWindow as !Send and !Sync
     _marker: PhantomData<*const ()>,
 }
 
-impl MainWindow {
-    pub fn new() -> Pin<Box<MainWindow>> {
+impl<'gdip> MainWindow<'gdip> {
+    pub fn new(gdi_plus: &'gdip GdiPlus) -> Pin<Box<Self>> {
         // SAFETY: The call does not have any preconditions and is always sound
         let result = unsafe { SetProcessDPIAware() };
         assert_ne!(result.0, 0, "SetProcessDPIAware failed");
@@ -51,6 +53,7 @@ impl MainWindow {
         }
         let mut window = Box::pin(MainWindow {
             handle: HWND::default(),
+            gdi_plus,
             controller: None,
             view: None,
             live_timers: vec![],
@@ -96,7 +99,7 @@ impl MainWindow {
             WM_CREATE => {
                 // SAFETY: The window handle is valid now and will stay valid
                 //   until view and controller are dropped
-                self.view = Some(unsafe { View::new(self.handle) });
+                self.view = Some(unsafe { View::new(self.handle, self.gdi_plus) });
                 self.controller = Some(unsafe { Controller::new(self.handle) });
                 let result = unsafe { SetTimer(self.handle, id::Timer::Main as usize, 1000, None) };
                 if result == 0 {
