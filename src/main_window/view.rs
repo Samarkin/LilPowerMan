@@ -76,8 +76,8 @@ impl View {
         let tdp_icon = self.tdp_icon.get_or_insert_with(|| unsafe {
             NotifyIcon::new(self.window, id::NotifyIcon::TdpLimit as _).unwrap()
         });
-        match &model.value {
-            &Ok(tdp_limit) => {
+        match model.value {
+            Ok(ref tdp_limit) => {
                 tdp_icon.update(
                     format!("Current TDP: {} mW", tdp_limit).as_str(),
                     format!("{}", tdp_limit / 1000).as_str(),
@@ -89,7 +89,7 @@ impl View {
                     },
                 );
             }
-            Err(err) => {
+            Err(ref err) => {
                 tdp_icon.update(
                     format!("Failed to get TDP information: {}", err).as_str(),
                     "🛑",
@@ -130,7 +130,7 @@ impl View {
         if Some(model) == old_model.as_ref() {
             return;
         }
-        match &model {
+        match model {
             Ok(charge_rate) => {
                 let is_charging = *charge_rate >= 0;
                 let abs_rate = charge_rate.abs();

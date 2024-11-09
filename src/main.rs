@@ -14,6 +14,7 @@ use winapi::windows_message_loop;
 
 fn main() {
     panic::set_hook(Box::new(|panic_info| {
+        // FIXME: This kicks off a nested message loop, which is likely to repeat the panic
         show_error_message_box(panic_info.to_string().as_str());
     }));
     let _window = MainWindow::new();

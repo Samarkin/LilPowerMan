@@ -53,6 +53,7 @@ impl Controller {
     }
 
     fn get_charge_rate(&self) -> Option<Result<i32, String>> {
+        // FIXME: Battery device stops working after charger disconnect
         self.battery
             .as_ref()
             .map(|b| b.get_charge_rate().map_err(|e| e.to_string()))
