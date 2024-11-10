@@ -4,8 +4,15 @@ use crate::battery::{BatteriesIterator, Battery};
 use crate::ryzenadj::RyzenAdj;
 use crate::winapi::show_error_message_box;
 use std::mem::take;
-use windows::Win32::Foundation::HWND;
-use windows::Win32::UI::WindowsAndMessaging::DestroyWindow;
+use windows::core::{Error, Owned, PWSTR};
+use windows::Win32::Foundation::{HWND, MAX_PATH};
+use windows::Win32::System::Threading::{
+    OpenProcess, QueryFullProcessImageNameW, PROCESS_ACCESS_RIGHTS, PROCESS_NAME_WIN32,
+    PROCESS_QUERY_LIMITED_INFORMATION,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    DestroyWindow, GetForegroundWindow, GetWindowThreadProcessId,
+};
 
 /// Controller owns the model and processes events coming from the window.
 pub struct Controller {
@@ -57,6 +64,31 @@ impl Controller {
         self.battery
             .as_ref()
             .map(|b| b.get_charge_rate().map_err(|e| e.to_string()))
+    }
+
+    fn get_fg_application(&self) -> Result<String, Error> {
+        // SAFETY: The call is always sound
+        let hwnd = unsafe { GetForegroundWindow() };
+        let mut pid = 0;
+        // SAFETY: The provided pointer is valid for the duration of the WinAPI call
+        let tid = unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+        if tid == 0 {
+            Err(Error::from_win32())?
+        }
+        // SAFETY: The call is always sound, we own the returned handle
+        let p = unsafe { Owned::new(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid)?) };
+        let mut path = [0u16; MAX_PATH as usize];
+        let mut len = MAX_PATH - 1;
+        // SAFETY: The provided pointer is pointing to an allocated area of the specified size
+        unsafe {
+            QueryFullProcessImageNameW(
+                *p,
+                PROCESS_NAME_WIN32,
+                PWSTR::from_raw(path.as_mut_ptr()),
+                &mut len,
+            )?
+        };
+        Ok(String::from_utf16_lossy(&path[..len as usize]))
     }
 
     fn get_tdp_menu_items(&self) -> Vec<u32> {
