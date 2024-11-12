@@ -1,3 +1,4 @@
+use crate::versioned::Versioned;
 use std::collections::HashMap;
 
 #[derive(Copy, Clone, PartialEq)]
@@ -36,30 +37,9 @@ pub struct PopupMenuModel {
     pub menu: PopupMenuType,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Settings {
-    app_limits: HashMap<String, u32>,
-    version: usize,
-}
-
-impl Settings {
-    pub fn get_app_limits(&self) -> &HashMap<String, u32> {
-        &self.app_limits
-    }
-
-    pub fn get_app_limits_mut(&mut self) -> &mut HashMap<String, u32> {
-        self.version += 1;
-        &mut self.app_limits
-    }
-}
-
-impl PartialEq for Settings {
-    fn eq(&self, other: &Self) -> bool {
-        if self.version == other.version {
-            return true;
-        }
-        self.app_limits == other.app_limits
-    }
+    pub app_limits: HashMap<String, u32>,
 }
 
 /// Model defines the current state of the application.
@@ -68,7 +48,7 @@ pub struct Model {
     pub tdp: Option<TdpModel>,
     pub charge_icon: Option<Result<i32, String>>,
     pub popup_menu: Option<PopupMenuModel>,
-    pub settings: Settings,
+    pub settings: Versioned<Settings>,
 }
 
 impl Model {
@@ -77,7 +57,7 @@ impl Model {
             tdp: None,
             charge_icon: None,
             popup_menu: None,
-            settings: Settings {
+            settings: Versioned::new(Settings {
                 app_limits: HashMap::from([
                     (
                         "c:\\program files\\jetbrains\\rustrover 2024.2.2\\bin\\rustrover64.exe"
@@ -90,8 +70,7 @@ impl Model {
                         20000,
                     ),
                 ]),
-                version: 0,
-            },
+            }),
         }
     }
 }

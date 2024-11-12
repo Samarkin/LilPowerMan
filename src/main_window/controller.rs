@@ -107,7 +107,7 @@ impl Controller {
             .get_fg_application()
             .unwrap_or_else(|_| String::new())
             .to_lowercase();
-        if let Some(app_limit) = self.model.settings.get_app_limits().get(&fg_app) {
+        if let Some(app_limit) = self.model.settings.app_limits.get(&fg_app) {
             let app_limit = *app_limit;
             target = Some(app_limit);
             state = match state {
