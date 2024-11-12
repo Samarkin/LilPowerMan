@@ -8,6 +8,7 @@ impl Color {
     pub const CYAN: Color = Color(GdipColor::Cyan as _);
     pub const RED: Color = Color(GdipColor::Red as _);
     pub const GREEN: Color = Color(GdipColor::Green as _);
+    pub const YELLOW: Color = Color(GdipColor::Yellow as _);
 }
 
 impl Into<u32> for Color {

@@ -1,5 +1,5 @@
 use super::id;
-use super::model::{Model, PopupMenuModel, PopupMenuType, TdpModel, TdpState};
+use super::model::{Model, PopupMenuModel, PopupMenuType, TdpModel, TdpState, TdpStateFallback};
 use crate::battery::{BatteriesIterator, Battery};
 use crate::ryzenadj::RyzenAdj;
 use crate::winapi::show_error_message_box;
@@ -7,8 +7,7 @@ use std::mem::take;
 use windows::core::{Error, Owned, PWSTR};
 use windows::Win32::Foundation::{HWND, MAX_PATH};
 use windows::Win32::System::Threading::{
-    OpenProcess, QueryFullProcessImageNameW, PROCESS_ACCESS_RIGHTS, PROCESS_NAME_WIN32,
-    PROCESS_QUERY_LIMITED_INFORMATION,
+    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     DestroyWindow, GetForegroundWindow, GetWindowThreadProcessId,
@@ -96,32 +95,88 @@ impl Controller {
         vec![5, 7, 10, 15, 20, 24, 28]
     }
 
-    pub fn on_timer(&mut self) {
-        self.model.tdp = match self.get_tdp_limit() {
-            Some(mut value) => {
-                let (menu_items, state) = take(&mut self.model.tdp)
-                    .map(|m| (m.menu_items, m.state))
-                    .unwrap_or_else(|| (self.get_tdp_menu_items(), TdpState::Tracking));
-                if let TdpState::Forcing(target) = state {
-                    if let Ok(current) = value {
-                        if current != target {
-                            if let Some(ryzen_adj) = &mut self.ryzen_adj {
-                                match ryzen_adj.set_all_limits(target) {
-                                    Ok(()) => value = Ok(target),
-                                    Err(err) => value = Err(err.to_string()),
-                                }
-                            }
+    pub fn refresh_tdp(&mut self) -> Option<TdpModel> {
+        let Some(mut value) = self.get_tdp_limit() else {
+            return None;
+        };
+        let (menu_items, mut state) = take(&mut self.model.tdp)
+            .map(|m| (m.menu_items, m.state))
+            .unwrap_or_else(|| (self.get_tdp_menu_items(), TdpState::Tracking));
+        let mut target = None;
+        let fg_app = self
+            .get_fg_application()
+            .unwrap_or_else(|_| String::new())
+            .to_lowercase();
+        if let Some(app_limit) = self.model.settings.get_app_limits().get(&fg_app) {
+            let app_limit = *app_limit;
+            target = Some(app_limit);
+            state = match state {
+                TdpState::Tracking => TdpState::ForcingApplication {
+                    app_limit,
+                    fallback: match value {
+                        Ok(x) => TdpStateFallback::Tracking(x),
+                        Err(_) => TdpStateFallback::TrackingUnknown,
+                    },
+                },
+                TdpState::Forcing(limit) => TdpState::ForcingApplication {
+                    app_limit,
+                    fallback: TdpStateFallback::Forcing(limit),
+                },
+                TdpState::ForcingApplication { fallback, .. } => TdpState::ForcingApplication {
+                    app_limit,
+                    fallback,
+                },
+            };
+        } else {
+            // should stop forcing app
+            match state {
+                TdpState::ForcingApplication {
+                    fallback: TdpStateFallback::Forcing(limit),
+                    ..
+                } => {
+                    target = Some(limit);
+                    state = TdpState::Forcing(limit);
+                }
+                TdpState::ForcingApplication {
+                    fallback: TdpStateFallback::Tracking(limit),
+                    ..
+                } => {
+                    target = Some(limit);
+                    state = TdpState::Tracking;
+                }
+                TdpState::ForcingApplication {
+                    fallback: TdpStateFallback::TrackingUnknown,
+                    ..
+                } => {
+                    state = TdpState::Tracking;
+                }
+                TdpState::Forcing(limit) => {
+                    if let Ok(current) = &value {
+                        if *current != limit {
+                            target = Some(limit);
                         }
                     }
                 }
-                Some(TdpModel {
-                    value,
-                    menu_items,
-                    state,
-                })
+                TdpState::Tracking => {}
             }
-            None => None,
-        };
+        }
+        if let Some(target) = target {
+            if let Some(ryzen_adj) = &mut self.ryzen_adj {
+                value = match ryzen_adj.set_all_limits(target) {
+                    Ok(()) => Ok(target),
+                    Err(err) => Err(err.to_string()),
+                }
+            }
+        }
+        Some(TdpModel {
+            value,
+            menu_items,
+            state,
+        })
+    }
+
+    pub fn on_timer(&mut self) {
+        self.model.tdp = self.refresh_tdp();
         self.model.charge_icon = self.get_charge_rate();
     }
 

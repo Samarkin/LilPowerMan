@@ -84,10 +84,10 @@ impl<'gdip> View<'gdip> {
                 tdp_icon.update(
                     format!("Current TDP: {} mW", tdp_limit).as_str(),
                     format!("{}", tdp_limit / 1000).as_str(),
-                    if model.state == TdpState::Tracking {
-                        Color::CYAN
-                    } else {
-                        Color::WHITE
+                    match model.state {
+                        TdpState::Tracking => Color::CYAN,
+                        TdpState::Forcing(_) => Color::WHITE,
+                        TdpState::ForcingApplication { .. } => Color::YELLOW,
                     },
                 );
             }
