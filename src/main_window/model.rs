@@ -2,20 +2,10 @@ use crate::versioned::Versioned;
 use std::collections::HashMap;
 
 #[derive(Copy, Clone, PartialEq)]
-pub enum TdpStateFallback {
-    TrackingUnknown,
-    Tracking(u32),
-    Forcing(u32),
-}
-
-#[derive(Copy, Clone, PartialEq)]
 pub enum TdpState {
     Tracking,
-    Forcing(u32),
-    ForcingApplication {
-        app_limit: u32,
-        fallback: TdpStateFallback,
-    },
+    Forcing,
+    ForcingApplication { fallback: Option<u32> },
 }
 
 #[derive(Clone, PartialEq)]
@@ -37,9 +27,16 @@ pub struct PopupMenuModel {
     pub menu: PopupMenuType,
 }
 
+#[derive(Copy, Clone, PartialEq)]
+pub enum TdpSetting {
+    Tracking,
+    Forcing(u32),
+}
+
 #[derive(Clone, PartialEq)]
 pub struct Settings {
     pub app_limits: HashMap<String, u32>,
+    pub tdp: TdpSetting,
 }
 
 /// Model defines the current state of the application.
@@ -70,21 +67,8 @@ impl Model {
                         20000,
                     ),
                 ]),
+                tdp: TdpSetting::Tracking,
             }),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_derived_eq() {
-        assert!(TdpState::Tracking == TdpState::Tracking);
-        assert!(TdpState::Forcing(10) == TdpState::Forcing(10));
-
-        assert!(TdpState::Tracking != TdpState::Forcing(10));
-        assert!(TdpState::Forcing(10) != TdpState::Forcing(20));
     }
 }

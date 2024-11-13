@@ -1,5 +1,5 @@
 use super::id;
-use super::model::{Model, PopupMenuType, TdpModel, TdpState};
+use super::model::{Model, PopupMenuType, TdpModel, TdpSetting, TdpState};
 use crate::gdip::{Color, GdiPlus};
 use crate::icons::NotifyIcon;
 use crate::menu::PopupMenu;
@@ -38,6 +38,7 @@ impl<'gdip> View<'gdip> {
         if let Some(tdp) = &new_model.tdp {
             self.update_tdp_icon(&old_model.tdp, tdp);
             self.update_tdp_menu(&old_model.tdp, tdp);
+            self.update_tdp_selection(&old_model, &new_model);
         } else {
             self.tdp_icon = None;
             self.tdp_icon_popup_menu = None;
@@ -86,7 +87,7 @@ impl<'gdip> View<'gdip> {
                     format!("{}", tdp_limit / 1000).as_str(),
                     match model.state {
                         TdpState::Tracking => Color::CYAN,
-                        TdpState::Forcing(_) => Color::WHITE,
+                        TdpState::Forcing => Color::WHITE,
                         TdpState::ForcingApplication { .. } => Color::YELLOW,
                     },
                 );
@@ -103,7 +104,7 @@ impl<'gdip> View<'gdip> {
 
     fn update_tdp_menu(&mut self, old_model: &Option<TdpModel>, model: &TdpModel) {
         if let Some(old_model) = old_model {
-            if old_model.menu_items == model.menu_items && old_model.state == model.state {
+            if old_model.menu_items == model.menu_items {
                 // Nothing to update
                 return;
             }
@@ -112,15 +113,36 @@ impl<'gdip> View<'gdip> {
         let mut menu = PopupMenu::new();
         let id = id::MenuItem::Observe as _;
         menu.append_menu_item("Just observe", id);
-        menu.check_menu_item(id, model.state == TdpState::Tracking);
         for x in &model.menu_items {
             let id = id::MenuItem::SetTdpBegin as u32 + x;
-            menu.append_menu_item(format!("{x} W").as_str(), id);
-            menu.check_menu_item(id, model.state == TdpState::Forcing(x * 1000));
+            menu.append_menu_item(&format!("{x} W"), id);
         }
         menu.append_separator();
         menu.append_menu_item("E&xit", id::MenuItem::Exit as _);
         self.tdp_icon_popup_menu = Some(menu);
+    }
+
+    fn update_tdp_selection(&mut self, old_model: &Model, model: &Model) {
+        if model.settings == old_model.settings
+            && model.tdp.as_ref().map(|t| &t.menu_items)
+                == old_model.tdp.as_ref().map(|t| &t.menu_items)
+        {
+            return;
+        }
+        let Some(menu) = &mut self.tdp_icon_popup_menu else {
+            return;
+        };
+        menu.check_menu_item(
+            id::MenuItem::Observe as _,
+            model.settings.tdp == TdpSetting::Tracking,
+        );
+        let Some(menu_items) = model.tdp.as_ref().map(|t| &t.menu_items) else {
+            return;
+        };
+        for x in menu_items {
+            let id = id::MenuItem::SetTdpBegin as u32 + x;
+            menu.check_menu_item(id, model.settings.tdp == TdpSetting::Forcing(x * 1000));
+        }
     }
 
     fn update_charge_icon(

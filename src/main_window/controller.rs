@@ -1,5 +1,5 @@
 use super::id;
-use super::model::{Model, PopupMenuModel, PopupMenuType, TdpModel, TdpState, TdpStateFallback};
+use super::model::{Model, PopupMenuModel, PopupMenuType, TdpModel, TdpSetting, TdpState};
 use crate::battery::{BatteriesIterator, Battery};
 use crate::ryzenadj::RyzenAdj;
 use crate::winapi::show_error_message_box;
@@ -110,61 +110,36 @@ impl Controller {
         if let Some(app_limit) = self.model.settings.app_limits.get(&fg_app) {
             let app_limit = *app_limit;
             target = Some(app_limit);
-            state = match state {
-                TdpState::Tracking => TdpState::ForcingApplication {
-                    app_limit,
-                    fallback: match value {
-                        Ok(x) => TdpStateFallback::Tracking(x),
-                        Err(_) => TdpStateFallback::TrackingUnknown,
-                    },
-                },
-                TdpState::Forcing(limit) => TdpState::ForcingApplication {
-                    app_limit,
-                    fallback: TdpStateFallback::Forcing(limit),
-                },
-                TdpState::ForcingApplication { fallback, .. } => TdpState::ForcingApplication {
-                    app_limit,
-                    fallback,
+            state = TdpState::ForcingApplication {
+                fallback: match value {
+                    Ok(x) => Some(x),
+                    Err(_) => None,
                 },
             };
-        } else {
+        } else if let TdpState::ForcingApplication { fallback } = state {
             // should stop forcing app
-            match state {
-                TdpState::ForcingApplication {
-                    fallback: TdpStateFallback::Forcing(limit),
-                    ..
-                } => {
-                    target = Some(limit);
-                    state = TdpState::Forcing(limit);
-                }
-                TdpState::ForcingApplication {
-                    fallback: TdpStateFallback::Tracking(limit),
-                    ..
-                } => {
-                    target = Some(limit);
+            match self.model.settings.tdp {
+                TdpSetting::Tracking => {
+                    target = fallback;
                     state = TdpState::Tracking;
                 }
-                TdpState::ForcingApplication {
-                    fallback: TdpStateFallback::TrackingUnknown,
-                    ..
-                } => {
-                    state = TdpState::Tracking;
+                TdpSetting::Forcing(x) => {
+                    target = Some(x);
+                    state = TdpState::Forcing;
                 }
-                TdpState::Forcing(limit) => {
-                    if let Ok(current) = &value {
-                        if *current != limit {
-                            target = Some(limit);
-                        }
-                    }
-                }
-                TdpState::Tracking => {}
-            }
+            };
+        } else if let TdpSetting::Forcing(x) = self.model.settings.tdp {
+            target = Some(x);
         }
         if let Some(target) = target {
             if let Some(ryzen_adj) = &mut self.ryzen_adj {
-                value = match ryzen_adj.set_all_limits(target) {
-                    Ok(()) => Ok(target),
-                    Err(err) => Err(err.to_string()),
+                if let Ok(current) = &value {
+                    if target != *current {
+                        value = match ryzen_adj.set_all_limits(target) {
+                            Ok(()) => Ok(target),
+                            Err(err) => Err(err.to_string()),
+                        }
+                    }
                 }
             }
         }
@@ -182,17 +157,13 @@ impl Controller {
 
     pub fn on_menu_item_click(&mut self, id: u32) {
         if id == id::MenuItem::Observe as _ {
-            if let Some(tdp) = &mut self.model.tdp {
-                tdp.state = TdpState::Tracking;
-            }
+            self.model.settings.tdp = TdpSetting::Tracking;
         } else if id == id::MenuItem::Exit as _ {
             // SAFETY: It is sound to destroy the window we own
             unsafe { DestroyWindow(self.window).unwrap() };
         } else if id > id::MenuItem::SetTdpBegin as _ {
             let target = id - id::MenuItem::SetTdpBegin as u32;
-            if let Some(tdp) = &mut self.model.tdp {
-                tdp.state = TdpState::Forcing(target * 1000);
-            }
+            self.model.settings.tdp = TdpSetting::Forcing(target * 1000);
         }
     }
 
