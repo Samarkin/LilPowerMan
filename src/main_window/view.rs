@@ -1,3 +1,4 @@
+use super::commands::Command;
 use super::id;
 use super::model::{Model, PopupMenuType, TdpModel, TdpSetting, TdpState};
 use crate::gdip::{Color, GdiPlus};
@@ -7,6 +8,8 @@ use std::mem::replace;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::EndMenu;
 
+const IDM_TDP_START: u32 = 1;
+
 /// View owns the UI components and renders model in the window.
 pub struct View<'gdip> {
     window: HWND,
@@ -15,6 +18,7 @@ pub struct View<'gdip> {
     tdp_icon: Option<NotifyIcon<'gdip>>,
     tdp_icon_popup_menu: Option<PopupMenu>,
     charge_icon: Option<NotifyIcon<'gdip>>,
+    tdp_menu_item_commands: Vec<Command>,
 }
 
 impl<'gdip> View<'gdip> {
@@ -29,6 +33,7 @@ impl<'gdip> View<'gdip> {
             tdp_icon: None,
             tdp_icon_popup_menu: None,
             charge_icon: None,
+            tdp_menu_item_commands: vec![],
         }
     }
 
@@ -102,46 +107,60 @@ impl<'gdip> View<'gdip> {
         }
     }
 
+    pub fn get_command_for_menu_item(&self, id: u32) -> Option<Command> {
+        if id >= IDM_TDP_START && id < IDM_TDP_START + self.tdp_menu_item_commands.len() as u32 {
+            self.tdp_menu_item_commands
+                .get((id - IDM_TDP_START) as usize)
+                .copied()
+        } else {
+            None
+        }
+    }
+
+    fn add_tdp_command(&mut self, command: Command) -> u32 {
+        let id = IDM_TDP_START + self.tdp_menu_item_commands.len() as u32;
+        self.tdp_menu_item_commands.push(command);
+        id
+    }
+
     fn update_tdp_menu(&mut self, old_model: &Option<TdpModel>, model: &TdpModel) {
         if let Some(old_model) = old_model {
-            if old_model.menu_items == model.menu_items {
+            if old_model.options == model.options {
                 // Nothing to update
                 return;
             }
         }
         // TODO: Update the existing menu instead of building a new one from scratch
+        self.tdp_menu_item_commands.clear();
         let mut menu = PopupMenu::new();
-        let id = id::MenuItem::Observe as _;
-        menu.append_menu_item("Just observe", id);
-        for x in &model.menu_items {
-            let id = id::MenuItem::SetTdpBegin as u32 + x;
-            menu.append_menu_item(&format!("{x} W"), id);
+        let id = self.add_tdp_command(Command::Observe);
+        menu.append_menu_item("Just &observe", id);
+        for tdp in &model.options {
+            let id = self.add_tdp_command(Command::SetTdp(*tdp));
+            menu.append_menu_item(&format!("{} W", (*tdp as f32) / 1000.0), id);
         }
         menu.append_separator();
-        menu.append_menu_item("E&xit", id::MenuItem::Exit as _);
+        let id = self.add_tdp_command(Command::Exit);
+        menu.append_menu_item("E&xit", id);
         self.tdp_icon_popup_menu = Some(menu);
     }
 
     fn update_tdp_selection(&mut self, old_model: &Model, model: &Model) {
         if model.settings == old_model.settings
-            && model.tdp.as_ref().map(|t| &t.menu_items)
-                == old_model.tdp.as_ref().map(|t| &t.menu_items)
+            && model.tdp.as_ref().map(|t| &t.options) == old_model.tdp.as_ref().map(|t| &t.options)
         {
             return;
         }
         let Some(menu) = &mut self.tdp_icon_popup_menu else {
             return;
         };
-        menu.check_menu_item(
-            id::MenuItem::Observe as _,
-            model.settings.tdp == TdpSetting::Tracking,
-        );
-        let Some(menu_items) = model.tdp.as_ref().map(|t| &t.menu_items) else {
-            return;
+        let checked_cmd = match model.settings.tdp {
+            TdpSetting::Tracking => Command::Observe,
+            TdpSetting::Forcing(x) => Command::SetTdp(x),
         };
-        for x in menu_items {
-            let id = id::MenuItem::SetTdpBegin as u32 + x;
-            menu.check_menu_item(id, model.settings.tdp == TdpSetting::Forcing(x * 1000));
+        for (i, cmd) in self.tdp_menu_item_commands.iter().enumerate() {
+            let id = i as u32 + IDM_TDP_START;
+            menu.check_menu_item(id, cmd == &checked_cmd);
         }
     }
 

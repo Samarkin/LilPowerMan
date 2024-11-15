@@ -12,7 +12,7 @@ pub enum TdpState {
 pub struct TdpModel {
     pub value: Result<u32, String>,
     pub state: TdpState,
-    pub menu_items: Vec<u32>,
+    pub options: Vec<u32>,
 }
 
 #[derive(Clone, PartialEq)]

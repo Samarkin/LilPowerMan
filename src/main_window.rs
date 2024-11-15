@@ -1,3 +1,4 @@
+mod commands;
 mod controller;
 mod id;
 mod model;
@@ -116,7 +117,11 @@ impl<'gdip> MainWindow<'gdip> {
                 let msg_source = w_param.0 as u32 >> 16;
                 let id = w_param.0 as u16 as u32;
                 if msg_source == 0 {
-                    self.with_controller(|c| c.on_menu_item_click(id));
+                    if let Some(view) = &self.view {
+                        if let Some(cmd) = view.get_command_for_menu_item(id) {
+                            self.with_controller(|c| c.on_command(cmd));
+                        }
+                    }
                 }
             }
             WM_EXITMENULOOP => {

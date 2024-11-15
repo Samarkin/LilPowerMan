@@ -1,3 +1,4 @@
+use super::commands::Command;
 use super::id;
 use super::model::{Model, PopupMenuModel, PopupMenuType, TdpModel, TdpSetting, TdpState};
 use crate::battery::{BatteriesIterator, Battery};
@@ -90,18 +91,18 @@ impl Controller {
         Ok(String::from_utf16_lossy(&path[..len as usize]))
     }
 
-    fn get_tdp_menu_items(&self) -> Vec<u32> {
+    fn get_tdp_options(&self) -> Vec<u32> {
         // TODO: Determine based on chip's max TDP
-        vec![5, 7, 10, 15, 20, 24, 28]
+        vec![5000, 7500, 10000, 15000, 20000, 24000, 28000]
     }
 
     pub fn refresh_tdp(&mut self) -> Option<TdpModel> {
         let Some(mut value) = self.get_tdp_limit() else {
             return None;
         };
-        let (menu_items, mut state) = take(&mut self.model.tdp)
-            .map(|m| (m.menu_items, m.state))
-            .unwrap_or_else(|| (self.get_tdp_menu_items(), TdpState::Tracking));
+        let (options, mut state) = take(&mut self.model.tdp)
+            .map(|m| (m.options, m.state))
+            .unwrap_or_else(|| (self.get_tdp_options(), TdpState::Tracking));
         let mut target = None;
         let fg_app = self
             .get_fg_application()
@@ -145,7 +146,7 @@ impl Controller {
         }
         Some(TdpModel {
             value,
-            menu_items,
+            options,
             state,
         })
     }
@@ -155,15 +156,13 @@ impl Controller {
         self.model.charge_icon = self.get_charge_rate();
     }
 
-    pub fn on_menu_item_click(&mut self, id: u32) {
-        if id == id::MenuItem::Observe as _ {
-            self.model.settings.tdp = TdpSetting::Tracking;
-        } else if id == id::MenuItem::Exit as _ {
+    pub fn on_command(&mut self, command: Command) {
+        match command {
+            Command::Observe => self.model.settings.tdp = TdpSetting::Tracking,
+            Command::SetTdp(target) => self.model.settings.tdp = TdpSetting::Forcing(target),
+            Command::Exit =>
             // SAFETY: It is sound to destroy the window we own
-            unsafe { DestroyWindow(self.window).unwrap() };
-        } else if id > id::MenuItem::SetTdpBegin as _ {
-            let target = id - id::MenuItem::SetTdpBegin as u32;
-            self.model.settings.tdp = TdpSetting::Forcing(target * 1000);
+            unsafe { DestroyWindow(self.window).unwrap() },
         }
     }
 
