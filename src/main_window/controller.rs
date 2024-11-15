@@ -100,10 +100,11 @@ impl Controller {
         let Some(mut value) = self.get_tdp_limit() else {
             return None;
         };
-        let (options, mut state) = take(&mut self.model.tdp)
+        let (options, old_state) = take(&mut self.model.tdp)
             .map(|m| (m.options, m.state))
             .unwrap_or_else(|| (self.get_tdp_options(), TdpState::Tracking));
-        let mut target = None;
+        let target;
+        let state;
         let fg_app = self
             .get_fg_application()
             .unwrap_or_else(|_| String::new())
@@ -117,20 +118,22 @@ impl Controller {
                     Err(_) => None,
                 },
             };
-        } else if let TdpState::ForcingApplication { fallback } = state {
+        } else {
             // should stop forcing app
             match self.model.settings.tdp {
-                TdpSetting::Tracking => {
-                    target = fallback;
-                    state = TdpState::Tracking;
-                }
                 TdpSetting::Forcing(x) => {
                     target = Some(x);
                     state = TdpState::Forcing;
                 }
-            };
-        } else if let TdpSetting::Forcing(x) = self.model.settings.tdp {
-            target = Some(x);
+                TdpSetting::Tracking => {
+                    if let TdpState::ForcingApplication { fallback } = old_state {
+                        target = fallback;
+                    } else {
+                        target = None;
+                    }
+                    state = TdpState::Tracking;
+                }
+            }
         }
         if let Some(target) = target {
             if let Some(ryzen_adj) = &mut self.ryzen_adj {
