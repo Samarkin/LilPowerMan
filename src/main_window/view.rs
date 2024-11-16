@@ -88,15 +88,24 @@ impl<'gdip> View<'gdip> {
         });
         match model.value {
             Ok(ref tdp_limit) => {
-                tdp_icon.update(
-                    format!("Current TDP: {} mW", tdp_limit).as_str(),
-                    format!("{}", tdp_limit / 1000).as_str(),
-                    match model.state {
-                        TdpState::Tracking => Color::CYAN,
-                        TdpState::Forcing => Color::WHITE,
-                        TdpState::ForcingApplication { .. } => Color::YELLOW,
-                    },
-                );
+                let tip;
+                let color;
+                match model.state {
+                    TdpState::Tracking => {
+                        tip = format!("Current TDP: {} mW", tdp_limit);
+                        color = Color::CYAN;
+                    }
+                    TdpState::Forcing => {
+                        tip = format!("TDP setting: {} mW", tdp_limit);
+                        color = Color::WHITE;
+                    }
+                    TdpState::ForcingApplication { .. } => {
+                        tip = format!("Application TDP setting: {} mW", tdp_limit);
+                        color = Color::YELLOW;
+                    }
+                };
+                let text = format!("{}", tdp_limit / 1000);
+                tdp_icon.update(tip.as_str(), text.as_str(), color);
             }
             Err(ref err) => {
                 tdp_icon.update(

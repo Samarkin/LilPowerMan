@@ -4,8 +4,8 @@ use windows::core::{Error, Owned, Result};
 use windows::Win32::Foundation::{ERROR_INVALID_PARAMETER, HWND};
 use windows::Win32::Graphics::GdiPlus::{FontStyleBold, UnitPoint};
 use windows::Win32::UI::Shell::{
-    Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY,
-    NIM_SETVERSION, NOTIFYICONDATAW, NOTIFYICONDATAW_0, NOTIFYICON_VERSION_4,
+    Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE,
+    NIM_MODIFY, NIM_SETVERSION, NOTIFYICONDATAW, NOTIFYICONDATAW_0, NOTIFYICON_VERSION_4,
 };
 use windows::Win32::UI::WindowsAndMessaging::{HICON, WM_APP};
 
@@ -48,11 +48,11 @@ impl<'gdip> NotifyIcon<'gdip> {
     pub unsafe fn new(window: HWND, id: u32, gdi_plus: &'gdip GdiPlus) -> Result<NotifyIcon> {
         let icon_factory = IconFactory::new(gdi_plus);
         let icon = icon_factory.render_icon("⏳", Color::WHITE);
-        let mut notify_icon_data = NOTIFYICONDATAW {
+        let notify_icon_data = NOTIFYICONDATAW {
             cbSize: size_of::<NOTIFYICONDATAW>() as u32,
             hWnd: window,
             uID: id,
-            uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP,
+            uFlags: NIF_MESSAGE | NIF_ICON,
             uCallbackMessage: WM_NOTIFY_ICON,
             Anonymous: NOTIFYICONDATAW_0 {
                 uVersion: NOTIFYICON_VERSION_4,
@@ -60,8 +60,6 @@ impl<'gdip> NotifyIcon<'gdip> {
             hIcon: *icon,
             ..Default::default()
         };
-        let tip: Vec<u16> = "Hello, world".encode_utf16().collect();
-        notify_icon_data.szTip[..tip.len()].copy_from_slice(&tip[..tip.len()]);
         // SAFETY: Notify icon data is a local structure
         if unsafe { Shell_NotifyIconW(NIM_ADD, &notify_icon_data) }.0 == 0
             || unsafe { Shell_NotifyIconW(NIM_SETVERSION, &notify_icon_data) }.0 == 0
@@ -82,7 +80,7 @@ impl<'gdip> NotifyIcon<'gdip> {
             cbSize: size_of::<NOTIFYICONDATAW>() as u32,
             hWnd: self.window,
             uID: self.id,
-            uFlags: NIF_TIP | NIF_ICON,
+            uFlags: NIF_TIP | NIF_ICON | NIF_SHOWTIP,
             hIcon: *icon,
             ..Default::default()
         };
