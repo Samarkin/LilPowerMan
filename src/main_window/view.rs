@@ -5,6 +5,7 @@ use crate::gdip::{Color, GdiPlus};
 use crate::icons::NotifyIcon;
 use crate::menu::PopupMenu;
 use std::mem::replace;
+use std::path::Path;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::EndMenu;
 
@@ -42,8 +43,8 @@ impl<'gdip> View<'gdip> {
         let old_model = replace(&mut self.model, new_model.clone());
         if let Some(tdp) = &new_model.tdp {
             self.update_tdp_icon(&old_model.tdp, tdp);
-            self.update_tdp_menu(&old_model.tdp, tdp);
-            self.update_tdp_selection(&old_model, &new_model);
+            let menu_rebuilt = self.update_tdp_menu(&old_model.tdp, tdp);
+            self.update_tdp_selection(&old_model, &new_model, menu_rebuilt);
         } else {
             self.tdp_icon = None;
             self.tdp_icon_popup_menu = None;
@@ -111,7 +112,7 @@ impl<'gdip> View<'gdip> {
         if id >= IDM_TDP_START && id < IDM_TDP_START + self.tdp_menu_item_commands.len() as u32 {
             self.tdp_menu_item_commands
                 .get((id - IDM_TDP_START) as usize)
-                .copied()
+                .cloned()
         } else {
             None
         }
@@ -123,16 +124,35 @@ impl<'gdip> View<'gdip> {
         id
     }
 
-    fn update_tdp_menu(&mut self, old_model: &Option<TdpModel>, model: &TdpModel) {
+    fn update_tdp_menu(&mut self, old_model: &Option<TdpModel>, model: &TdpModel) -> bool {
         if let Some(old_model) = old_model {
-            if old_model.options == model.options {
+            if old_model.options == model.options && old_model.applications == model.applications {
                 // Nothing to update
-                return;
+                return false;
             }
         }
         // TODO: Update the existing menu instead of building a new one from scratch
         self.tdp_menu_item_commands.clear();
         let mut menu = PopupMenu::new();
+        if model.applications.len() > 0 {
+            for app in &model.applications {
+                let mut app_menu = PopupMenu::new();
+                let id = self.add_tdp_command(Command::ResetApplicationTdp(app.clone()));
+                app_menu.append_menu_item("Default", id);
+                for tdp in &model.options {
+                    let id = self.add_tdp_command(Command::SetApplicationTdp(app.clone(), *tdp));
+                    app_menu.append_menu_item(&format!("{} W", (*tdp as f32) / 1000.0), id);
+                }
+                let path = Path::new(app);
+                let file_name = path
+                    .file_name()
+                    .unwrap_or(app)
+                    .to_str()
+                    .unwrap_or("<UNKNOWN>");
+                menu.append_submenu(file_name, app_menu);
+            }
+            menu.append_separator();
+        }
         let id = self.add_tdp_command(Command::Observe);
         menu.append_menu_item("Just &observe", id);
         for tdp in &model.options {
@@ -143,24 +163,28 @@ impl<'gdip> View<'gdip> {
         let id = self.add_tdp_command(Command::Exit);
         menu.append_menu_item("E&xit", id);
         self.tdp_icon_popup_menu = Some(menu);
+        true
     }
 
-    fn update_tdp_selection(&mut self, old_model: &Model, model: &Model) {
-        if model.settings == old_model.settings
-            && model.tdp.as_ref().map(|t| &t.options) == old_model.tdp.as_ref().map(|t| &t.options)
-        {
+    fn update_tdp_selection(&mut self, old_model: &Model, model: &Model, menu_rebuilt: bool) {
+        if model.settings == old_model.settings && !menu_rebuilt {
             return;
         }
         let Some(menu) = &mut self.tdp_icon_popup_menu else {
             return;
         };
-        let checked_cmd = match model.settings.tdp {
-            TdpSetting::Tracking => Command::Observe,
-            TdpSetting::Forcing(x) => Command::SetTdp(x),
-        };
         for (i, cmd) in self.tdp_menu_item_commands.iter().enumerate() {
             let id = i as u32 + IDM_TDP_START;
-            menu.check_menu_item(id, cmd == &checked_cmd);
+            let checked = match cmd {
+                Command::Observe => model.settings.tdp == TdpSetting::Tracking,
+                Command::ResetApplicationTdp(app) => model.settings.app_limits.get(app).is_none(),
+                Command::SetApplicationTdp(app, limit) => {
+                    model.settings.app_limits.get(app) == Some(limit)
+                }
+                Command::SetTdp(target) => model.settings.tdp == TdpSetting::Forcing(*target),
+                Command::Exit => continue,
+            };
+            menu.check_menu_item(id, checked);
         }
     }
 

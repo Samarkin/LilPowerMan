@@ -1,5 +1,6 @@
 use crate::versioned::Versioned;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use std::ffi::OsString;
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum TdpState {
@@ -12,6 +13,7 @@ pub enum TdpState {
 pub struct TdpModel {
     pub value: Result<u32, String>,
     pub state: TdpState,
+    pub applications: VecDeque<OsString>,
     pub options: Vec<u32>,
 }
 
@@ -35,7 +37,7 @@ pub enum TdpSetting {
 
 #[derive(Clone, PartialEq)]
 pub struct Settings {
-    pub app_limits: HashMap<String, u32>,
+    pub app_limits: HashMap<OsString, u32>,
     pub tdp: TdpSetting,
 }
 
@@ -57,13 +59,11 @@ impl Model {
             settings: Versioned::new(Settings {
                 app_limits: HashMap::from([
                     (
-                        "c:\\program files\\jetbrains\\rustrover 2024.2.2\\bin\\rustrover64.exe"
-                            .to_string(),
+                        OsString::from("c:\\program files\\jetbrains\\rustrover 2024.2.2\\bin\\rustrover64.exe"),
                         10000,
                     ),
                     (
-                        "c:\\games\\steam\\steamapps\\common\\red dead redemption\\rdr.exe"
-                            .to_string(),
+                        OsString::from("c:\\games\\steam\\steamapps\\common\\red dead redemption\\rdr.exe"),
                         20000,
                     ),
                 ]),

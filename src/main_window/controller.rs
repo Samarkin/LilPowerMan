@@ -4,21 +4,28 @@ use super::model::{Model, PopupMenuModel, PopupMenuType, TdpModel, TdpSetting, T
 use crate::battery::{BatteriesIterator, Battery};
 use crate::ryzenadj::RyzenAdj;
 use crate::winapi::show_error_message_box;
+use std::collections::VecDeque;
+use std::ffi::OsString;
 use std::mem::take;
+use std::os::windows::ffi::OsStringExt;
 use windows::core::{Error, Owned, PWSTR};
 use windows::Win32::Foundation::{HWND, MAX_PATH};
 use windows::Win32::System::Threading::{
-    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+    GetCurrentProcessId, OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+    PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     DestroyWindow, GetForegroundWindow, GetWindowThreadProcessId,
 };
+
+const MAX_RECENT_APPLICATIONS: usize = 5;
 
 /// Controller owns the model and processes events coming from the window.
 pub struct Controller {
     window: HWND,
     ryzen_adj: Option<RyzenAdj>,
     battery: Option<Battery>,
+    self_path: Option<OsString>,
     model: Model,
 }
 
@@ -48,6 +55,7 @@ impl Controller {
             ryzen_adj,
             battery,
             model: Model::new(),
+            self_path: Self::get_self_path().ok(),
         }
     }
 
@@ -66,7 +74,7 @@ impl Controller {
             .map(|b| b.get_charge_rate().map_err(|e| e.to_string()))
     }
 
-    fn get_fg_application(&self) -> Result<String, Error> {
+    fn get_fg_application_pid() -> Result<u32, Error> {
         // SAFETY: The call is always sound
         let hwnd = unsafe { GetForegroundWindow() };
         let mut pid = 0;
@@ -75,6 +83,10 @@ impl Controller {
         if tid == 0 {
             Err(Error::from_win32())?
         }
+        Ok(pid)
+    }
+
+    fn get_application_path(pid: u32) -> Result<OsString, Error> {
         // SAFETY: The call is always sound, we own the returned handle
         let p = unsafe { Owned::new(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid)?) };
         let mut path = [0u16; MAX_PATH as usize];
@@ -88,7 +100,20 @@ impl Controller {
                 &mut len,
             )?
         };
-        Ok(String::from_utf16_lossy(&path[..len as usize]))
+        Ok(OsString::from_wide(&path[..len as usize]).to_ascii_lowercase())
+    }
+
+    fn get_self_pid() -> u32 {
+        // SAFETY: The call is always sound
+        unsafe { GetCurrentProcessId() }
+    }
+
+    fn get_self_path() -> Result<OsString, Error> {
+        Self::get_application_path(Self::get_self_pid())
+    }
+
+    fn get_fg_application() -> Result<OsString, Error> {
+        Self::get_fg_application_pid().and_then(Self::get_application_path)
     }
 
     fn get_tdp_options(&self) -> Vec<u32> {
@@ -100,16 +125,16 @@ impl Controller {
         let Some(mut value) = self.get_tdp_limit() else {
             return None;
         };
-        let (options, old_state) = take(&mut self.model.tdp)
-            .map(|m| (m.options, m.state))
-            .unwrap_or_else(|| (self.get_tdp_options(), TdpState::Tracking));
+        let (options, mut applications, old_state) = take(&mut self.model.tdp)
+            .map(|m| (m.options, m.applications, m.state))
+            .unwrap_or_else(|| (self.get_tdp_options(), VecDeque::new(), TdpState::Tracking));
         let target;
         let state;
-        let fg_app = self
-            .get_fg_application()
-            .unwrap_or_else(|_| String::new())
-            .to_lowercase();
-        if let Some(app_limit) = self.model.settings.app_limits.get(&fg_app) {
+        let fg_app = Self::get_fg_application().ok();
+        let app_limit = fg_app
+            .as_ref()
+            .and_then(|s| self.model.settings.app_limits.get(s));
+        if let Some(app_limit) = app_limit {
             let app_limit = *app_limit;
             target = Some(app_limit);
             state = TdpState::ForcingApplication {
@@ -135,6 +160,14 @@ impl Controller {
                 }
             }
         }
+        if let Some(fg_app) = fg_app {
+            if Some(&fg_app) != self.self_path.as_ref() && !applications.contains(&fg_app) {
+                applications.push_front(fg_app);
+                while applications.len() > MAX_RECENT_APPLICATIONS {
+                    applications.pop_back();
+                }
+            }
+        }
         if let Some(target) = target {
             if let Some(ryzen_adj) = &mut self.ryzen_adj {
                 if let Ok(current) = &value {
@@ -150,6 +183,7 @@ impl Controller {
         Some(TdpModel {
             value,
             options,
+            applications,
             state,
         })
     }
@@ -162,6 +196,10 @@ impl Controller {
     pub fn on_command(&mut self, command: Command) {
         match command {
             Command::Observe => self.model.settings.tdp = TdpSetting::Tracking,
+            Command::ResetApplicationTdp(app) => _ = self.model.settings.app_limits.remove(&app),
+            Command::SetApplicationTdp(app, limit) => {
+                _ = self.model.settings.app_limits.insert(app, limit)
+            }
             Command::SetTdp(target) => self.model.settings.tdp = TdpSetting::Forcing(target),
             Command::Exit =>
             // SAFETY: It is sound to destroy the window we own
