@@ -2,7 +2,7 @@ pub mod colors;
 mod dc;
 mod paint;
 
-use windows::core::{Error, Owned, Result, PCWSTR};
+use windows::core::{w, Error, Owned, Result, PCWSTR};
 use windows::Win32::Foundation::{BOOL, HANDLE, HINSTANCE};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::IO::DeviceIoControl;
@@ -14,10 +14,12 @@ use windows::Win32::UI::WindowsAndMessaging::{
 pub use dc::AcquiredDC;
 pub use paint::PaintContext;
 
+const APP_NAME: PCWSTR = w!("LilPowerMan");
+
 pub fn show_error_message_box(text: &str) {
     let mut text: Vec<u16> = text.encode_utf16().collect();
     text.push(0);
-    unsafe { MessageBoxW(None, PCWSTR::from_raw(text.as_ptr()), None, MB_OK) };
+    unsafe { MessageBoxW(None, PCWSTR::from_raw(text.as_ptr()), APP_NAME, MB_OK) };
 }
 
 pub fn get_instance_handle() -> HINSTANCE {
