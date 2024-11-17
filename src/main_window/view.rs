@@ -1,9 +1,10 @@
 use super::commands::Command;
 use super::id;
-use super::model::{Model, PopupMenuType, TdpModel, TdpSetting, TdpState};
+use super::model::{Model, PopupMenuType, TdpModel, TdpState};
 use crate::gdip::{Color, GdiPlus};
 use crate::icons::NotifyIcon;
 use crate::menu::PopupMenu;
+use crate::settings::TdpSetting;
 use std::mem::replace;
 use std::path::Path;
 use windows::Win32::Foundation::HWND;
@@ -30,7 +31,7 @@ impl<'gdip> View<'gdip> {
         View {
             window,
             gdi_plus,
-            model: Model::new(),
+            model: Model::default(),
             tdp_icon: None,
             tdp_icon_popup_menu: None,
             charge_icon: None,
@@ -185,12 +186,14 @@ impl<'gdip> View<'gdip> {
         for (i, cmd) in self.tdp_menu_item_commands.iter().enumerate() {
             let id = i as u32 + IDM_TDP_START;
             let checked = match cmd {
-                Command::Observe => model.settings.tdp == TdpSetting::Tracking,
-                Command::ResetApplicationTdp(app) => model.settings.app_limits.get(app).is_none(),
+                Command::Observe => model.settings.get_tdp_setting() == TdpSetting::Tracking,
+                Command::ResetApplicationTdp(app) => model.settings.get_app_limit(app).is_none(),
                 Command::SetApplicationTdp(app, limit) => {
-                    model.settings.app_limits.get(app) == Some(limit)
+                    model.settings.get_app_limit(app) == Some(*limit)
                 }
-                Command::SetTdp(target) => model.settings.tdp == TdpSetting::Forcing(*target),
+                Command::SetTdp(target) => {
+                    model.settings.get_tdp_setting() == TdpSetting::Forcing(*target)
+                }
                 Command::Exit => continue,
             };
             menu.check_menu_item(id, checked);

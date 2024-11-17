@@ -1,8 +1,9 @@
 use super::commands::Command;
 use super::id;
-use super::model::{Model, PopupMenuModel, PopupMenuType, TdpModel, TdpSetting, TdpState};
+use super::model::{Model, PopupMenuModel, PopupMenuType, TdpModel, TdpState};
 use crate::battery::{BatteriesIterator, Battery};
 use crate::ryzenadj::RyzenAdj;
+use crate::settings::{SettingsStorage, TdpSetting};
 use crate::winapi::show_error_message_box;
 use std::collections::VecDeque;
 use std::ffi::OsString;
@@ -25,6 +26,7 @@ pub struct Controller {
     window: HWND,
     ryzen_adj: Option<RyzenAdj>,
     battery: Option<Battery>,
+    settings_storage: SettingsStorage,
     self_path: Option<OsString>,
     model: Model,
 }
@@ -50,11 +52,14 @@ impl Controller {
                 Some,
             )
         });
+        let settings_storage = SettingsStorage::new();
+        let model = Model::new(&settings_storage);
         Controller {
             window,
             ryzen_adj,
             battery,
-            model: Model::new(),
+            settings_storage,
+            model,
             self_path: Self::get_self_path().ok(),
         }
     }
@@ -133,9 +138,8 @@ impl Controller {
         let fg_app = Self::get_fg_application().ok();
         let app_limit = fg_app
             .as_ref()
-            .and_then(|s| self.model.settings.app_limits.get(s));
+            .and_then(|s| self.model.settings.get_app_limit(s));
         if let Some(app_limit) = app_limit {
-            let app_limit = *app_limit;
             target = Some(app_limit);
             state = TdpState::ForcingApplication {
                 fallback: match value {
@@ -145,7 +149,7 @@ impl Controller {
             };
         } else {
             // should stop forcing app
-            match self.model.settings.tdp {
+            match self.model.settings.get_tdp_setting() {
                 TdpSetting::Forcing(x) => {
                     target = Some(x);
                     state = TdpState::Forcing;
@@ -195,12 +199,18 @@ impl Controller {
 
     pub fn on_command(&mut self, command: Command) {
         match command {
-            Command::Observe => self.model.settings.tdp = TdpSetting::Tracking,
-            Command::ResetApplicationTdp(app) => _ = self.model.settings.app_limits.remove(&app),
+            Command::Observe => self.model.settings.set_tdp_setting(TdpSetting::Tracking),
+            Command::ResetApplicationTdp(app) => self
+                .settings_storage
+                .remove_app_limit(&mut self.model.settings, &app),
             Command::SetApplicationTdp(app, limit) => {
-                _ = self.model.settings.app_limits.insert(app, limit)
+                self.settings_storage
+                    .set_app_limit(&mut self.model.settings, app, limit)
             }
-            Command::SetTdp(target) => self.model.settings.tdp = TdpSetting::Forcing(target),
+            Command::SetTdp(target) => self
+                .model
+                .settings
+                .set_tdp_setting(TdpSetting::Forcing(target)),
             Command::Exit =>
             // SAFETY: It is sound to destroy the window we own
             unsafe { DestroyWindow(self.window).unwrap() },

@@ -1,5 +1,6 @@
+use crate::settings::{Settings, SettingsStorage};
 use crate::versioned::Versioned;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::ffi::OsString;
 
 #[derive(Copy, Clone, PartialEq)]
@@ -29,20 +30,8 @@ pub struct PopupMenuModel {
     pub menu: PopupMenuType,
 }
 
-#[derive(Copy, Clone, PartialEq)]
-pub enum TdpSetting {
-    Tracking,
-    Forcing(u32),
-}
-
-#[derive(Clone, PartialEq)]
-pub struct Settings {
-    pub app_limits: HashMap<OsString, u32>,
-    pub tdp: TdpSetting,
-}
-
 /// Model defines the current state of the application.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct Model {
     pub tdp: Option<TdpModel>,
     pub charge_icon: Option<Result<i32, String>>,
@@ -51,24 +40,12 @@ pub struct Model {
 }
 
 impl Model {
-    pub fn new() -> Self {
+    pub fn new(settings_storage: &SettingsStorage) -> Self {
         Model {
             tdp: None,
             charge_icon: None,
             popup_menu: None,
-            settings: Versioned::new(Settings {
-                app_limits: HashMap::from([
-                    (
-                        OsString::from("c:\\program files\\jetbrains\\rustrover 2024.2.2\\bin\\rustrover64.exe"),
-                        10000,
-                    ),
-                    (
-                        OsString::from("c:\\games\\steam\\steamapps\\common\\red dead redemption\\rdr.exe"),
-                        20000,
-                    ),
-                ]),
-                tdp: TdpSetting::Tracking,
-            }),
+            settings: Versioned::new(settings_storage.load()),
         }
     }
 }

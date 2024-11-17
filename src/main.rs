@@ -6,6 +6,7 @@ mod icons;
 mod main_window;
 mod menu;
 mod ryzenadj;
+mod settings;
 mod singleton;
 mod versioned;
 mod winapi;

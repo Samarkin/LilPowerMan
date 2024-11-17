@@ -7,7 +7,7 @@ Power manager / information display for portable Windows devices (laptops/tablet
 - [x] Display power consumption information in the notification area
 - [ ] Display battery percentage in the notification area
 - [x] Display and configure TDP on Ryzen processors
-- [ ] Auto-switch TDP presets on game launch
+- [x] Auto-switch TDP presets on game launch
 - [ ] Provide power information overlay for games
 
 ## Tenets

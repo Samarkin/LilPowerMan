@@ -67,6 +67,12 @@ impl<T: PartialEq + Debug> Debug for Versioned<T> {
     }
 }
 
+impl<T: PartialEq + Default> Default for Versioned<T> {
+    fn default() -> Self {
+        Versioned::new(T::default())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
