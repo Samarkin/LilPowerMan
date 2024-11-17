@@ -52,6 +52,10 @@ impl Controller {
                 Some,
             )
         });
+        assert!(
+            ryzen_adj.is_some() || battery.is_some(),
+            "All subsystems failed to initialize"
+        );
         let settings_storage = SettingsStorage::new();
         let model = Model::new(&settings_storage);
         Controller {
