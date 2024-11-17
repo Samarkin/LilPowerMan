@@ -21,6 +21,7 @@ pub struct TdpModel {
 #[derive(Clone, PartialEq)]
 pub enum PopupMenuType {
     TdpIcon,
+    ChargeIcon,
 }
 
 #[derive(Clone, PartialEq)]

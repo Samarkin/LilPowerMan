@@ -11,6 +11,7 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::EndMenu;
 
 const IDM_TDP_START: u32 = 1;
+const IDM_CHARGE_START: u32 = 257;
 
 /// View owns the UI components and renders model in the window.
 pub struct View<'gdip> {
@@ -19,8 +20,10 @@ pub struct View<'gdip> {
     model: Model,
     tdp_icon: Option<NotifyIcon<'gdip>>,
     tdp_icon_popup_menu: Option<PopupMenu>,
+    tdp_icon_menu_commands: Vec<Command>,
     charge_icon: Option<NotifyIcon<'gdip>>,
-    tdp_menu_item_commands: Vec<Command>,
+    charge_icon_popup_menu: Option<PopupMenu>,
+    charge_icon_menu_commands: Vec<Command>,
 }
 
 impl<'gdip> View<'gdip> {
@@ -34,8 +37,10 @@ impl<'gdip> View<'gdip> {
             model: Model::default(),
             tdp_icon: None,
             tdp_icon_popup_menu: None,
+            tdp_icon_menu_commands: vec![],
             charge_icon: None,
-            tdp_menu_item_commands: vec![],
+            charge_icon_popup_menu: None,
+            charge_icon_menu_commands: vec![],
         }
     }
 
@@ -57,8 +62,10 @@ impl<'gdip> View<'gdip> {
                     .unwrap()
             });
             Self::update_charge_icon(charge_icon, &old_model.charge_icon, charge_icon_model);
+            self.build_charge_icon_menu();
         } else {
             self.charge_icon = None;
+            self.charge_icon_popup_menu = None;
         }
         if new_model.popup_menu != old_model.popup_menu {
             // SAFETY: The call is always sound, but will return an error
@@ -67,6 +74,7 @@ impl<'gdip> View<'gdip> {
             if let Some(popup_menu) = &new_model.popup_menu {
                 let menu = match popup_menu.menu {
                     PopupMenuType::TdpIcon => &self.tdp_icon_popup_menu,
+                    PopupMenuType::ChargeIcon => &self.charge_icon_popup_menu,
                 };
                 if let Some(menu) = menu {
                     // SAFETY: The handle points to a currently live window
@@ -119,9 +127,15 @@ impl<'gdip> View<'gdip> {
     }
 
     pub fn get_command_for_menu_item(&self, id: u32) -> Option<Command> {
-        if id >= IDM_TDP_START && id < IDM_TDP_START + self.tdp_menu_item_commands.len() as u32 {
-            self.tdp_menu_item_commands
+        if id >= IDM_TDP_START && id < IDM_TDP_START + self.tdp_icon_menu_commands.len() as u32 {
+            self.tdp_icon_menu_commands
                 .get((id - IDM_TDP_START) as usize)
+                .cloned()
+        } else if id >= IDM_CHARGE_START
+            && id < IDM_CHARGE_START + self.charge_icon_menu_commands.len() as u32
+        {
+            self.charge_icon_menu_commands
+                .get((id - IDM_CHARGE_START) as usize)
                 .cloned()
         } else {
             None
@@ -129,8 +143,14 @@ impl<'gdip> View<'gdip> {
     }
 
     fn add_tdp_command(&mut self, command: Command) -> u32 {
-        let id = IDM_TDP_START + self.tdp_menu_item_commands.len() as u32;
-        self.tdp_menu_item_commands.push(command);
+        let id = IDM_TDP_START + self.tdp_icon_menu_commands.len() as u32;
+        self.tdp_icon_menu_commands.push(command);
+        id
+    }
+
+    fn add_charge_command(&mut self, command: Command) -> u32 {
+        let id = IDM_CHARGE_START + self.charge_icon_menu_commands.len() as u32;
+        self.charge_icon_menu_commands.push(command);
         id
     }
 
@@ -142,7 +162,7 @@ impl<'gdip> View<'gdip> {
             }
         }
         // TODO: Update the existing menu instead of building a new one from scratch
-        self.tdp_menu_item_commands.clear();
+        self.tdp_icon_menu_commands.clear();
         let mut menu = PopupMenu::new();
         if model.applications.len() > 0 {
             for app in &model.applications {
@@ -183,7 +203,7 @@ impl<'gdip> View<'gdip> {
         let Some(menu) = &mut self.tdp_icon_popup_menu else {
             return;
         };
-        for (i, cmd) in self.tdp_menu_item_commands.iter().enumerate() {
+        for (i, cmd) in self.tdp_icon_menu_commands.iter().enumerate() {
             let id = i as u32 + IDM_TDP_START;
             let checked = match cmd {
                 Command::Observe => model.settings.get_tdp_setting() == TdpSetting::Tracking,
@@ -236,5 +256,16 @@ impl<'gdip> View<'gdip> {
                 );
             }
         }
+    }
+
+    fn build_charge_icon_menu(&mut self) {
+        if self.charge_icon_popup_menu.is_some() {
+            return;
+        }
+        self.charge_icon_menu_commands.clear();
+        let mut menu = PopupMenu::new();
+        let id = self.add_charge_command(Command::Exit);
+        menu.append_menu_item("E&xit", id);
+        self.charge_icon_popup_menu = Some(menu);
     }
 }

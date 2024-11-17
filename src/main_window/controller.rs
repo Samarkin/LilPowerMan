@@ -224,6 +224,12 @@ impl Controller {
                 y,
                 menu: PopupMenuType::TdpIcon,
             })
+        } else if id == id::NotifyIcon::ChargeRate as _ {
+            self.model.popup_menu = Some(PopupMenuModel {
+                x,
+                y,
+                menu: PopupMenuType::ChargeIcon,
+            })
         }
     }
 
