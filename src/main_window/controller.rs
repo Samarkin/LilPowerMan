@@ -203,7 +203,9 @@ impl Controller {
 
     pub fn on_command(&mut self, command: Command) {
         match command {
-            Command::Observe => self.model.settings.set_tdp_setting(TdpSetting::Tracking),
+            Command::Observe => self
+                .settings_storage
+                .set_tdp_setting(&mut self.model.settings, TdpSetting::Tracking),
             Command::ResetApplicationTdp(app) => self
                 .settings_storage
                 .remove_app_limit(&mut self.model.settings, &app),
@@ -212,9 +214,8 @@ impl Controller {
                     .set_app_limit(&mut self.model.settings, app, limit)
             }
             Command::SetTdp(target) => self
-                .model
-                .settings
-                .set_tdp_setting(TdpSetting::Forcing(target)),
+                .settings_storage
+                .set_tdp_setting(&mut self.model.settings, TdpSetting::Forcing(target)),
             Command::Exit =>
             // SAFETY: It is sound to destroy the window we own
             unsafe { DestroyWindow(self.window).unwrap() },

@@ -2,10 +2,13 @@ use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use windows::core::{w, Error, Owned, PCWSTR, PWSTR};
-use windows::Win32::Foundation::{ERROR_MORE_DATA, ERROR_NO_MORE_ITEMS, ERROR_SUCCESS};
+use windows::Win32::Foundation::{
+    ERROR_FILE_NOT_FOUND, ERROR_MORE_DATA, ERROR_NO_MORE_ITEMS, ERROR_SUCCESS,
+};
 use windows::Win32::System::Registry::{
-    RegCreateKeyExW, RegDeleteValueW, RegEnumValueW, RegQueryInfoKeyW, RegSetValueExW, HKEY,
-    HKEY_CURRENT_USER, KEY_ALL_ACCESS, REG_DWORD_LITTLE_ENDIAN, REG_OPTION_NON_VOLATILE,
+    RegCreateKeyExW, RegDeleteValueW, RegEnumValueW, RegGetValueW, RegQueryInfoKeyW,
+    RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_ALL_ACCESS, REG_DWORD_LITTLE_ENDIAN,
+    REG_OPTION_NON_VOLATILE, RRF_RT_REG_DWORD, RRF_ZEROONFAILURE,
 };
 
 #[derive(Copy, Clone, Default, PartialEq)]
@@ -28,10 +31,6 @@ impl Settings {
 
     pub fn get_tdp_setting(&self) -> TdpSetting {
         self.tdp
-    }
-
-    pub fn set_tdp_setting(&mut self, tdp: TdpSetting) {
-        self.tdp = tdp;
     }
 }
 
@@ -68,6 +67,31 @@ impl SettingsStorage {
         }
         // SAFETY: We own the returned handle
         Ok(unsafe { Owned::new(key) })
+    }
+
+    fn load_tdp_setting(&self) -> TdpSetting {
+        let mut data = 0;
+        let mut data_len = size_of::<u32>() as u32;
+        // SAFETY: All provided pointers reference local variables, string is null-terminated
+        let result = unsafe {
+            RegGetValueW(
+                *self.root_key,
+                None,
+                w!("TdpSetting"),
+                RRF_RT_REG_DWORD | RRF_ZEROONFAILURE,
+                None,
+                Some(&mut data as *mut _ as *mut _),
+                Some(&mut data_len),
+            )
+        };
+        if result != ERROR_SUCCESS && result != ERROR_MORE_DATA && result != ERROR_FILE_NOT_FOUND {
+            panic!("{}", Error::from(result));
+        }
+        if data == 0 {
+            TdpSetting::Tracking
+        } else {
+            TdpSetting::Forcing(data)
+        }
     }
 
     pub fn load(&self) -> Settings {
@@ -123,7 +147,7 @@ impl SettingsStorage {
         }
         Settings {
             app_limits,
-            tdp: TdpSetting::Tracking,
+            tdp: self.load_tdp_setting(),
         }
     }
 
@@ -156,5 +180,27 @@ impl SettingsStorage {
             panic!("{}", Error::from(result));
         }
         settings.app_limits.remove(app);
+    }
+
+    pub fn set_tdp_setting(&mut self, settings: &mut Settings, tdp: TdpSetting) {
+        let data = if let TdpSetting::Forcing(x) = tdp {
+            x.to_le_bytes()
+        } else {
+            [0; 4]
+        };
+        // SAFETY: All provided pointers reference local variables, string is null-terminated
+        let result = unsafe {
+            RegSetValueExW(
+                *self.root_key,
+                w!("TdpSetting"),
+                0,
+                REG_DWORD_LITTLE_ENDIAN,
+                Some(&data),
+            )
+        };
+        if result != ERROR_SUCCESS {
+            panic!("{}", Error::from(result));
+        }
+        settings.tdp = tdp;
     }
 }
