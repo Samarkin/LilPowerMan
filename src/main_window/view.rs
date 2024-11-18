@@ -78,7 +78,7 @@ impl<'gdip> View<'gdip> {
                 };
                 if let Some(menu) = menu {
                     // SAFETY: The handle points to a currently live window
-                    unsafe { menu.show(popup_menu.x, popup_menu.y, self.window) }
+                    _ = unsafe { menu.show(popup_menu.x, popup_menu.y, self.window) }
                 }
             }
         }

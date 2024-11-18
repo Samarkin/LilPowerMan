@@ -1,4 +1,4 @@
-use windows::core::{Error, Owned, PCWSTR};
+use windows::core::{Owned, PCWSTR};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CheckMenuItem, CreatePopupMenu, SetForegroundWindow, TrackPopupMenu, HMENU,
@@ -72,12 +72,12 @@ impl PopupMenu {
     /// # Safety
     ///
     /// The caller must guarantee that the handle will stay valid for the duration of the call.
-    pub unsafe fn show(&self, x: i32, y: i32, window: HWND) {
-        let result = unsafe { SetForegroundWindow(window) };
-        assert_ne!(result.0, 0, "Failed to set foreground window");
-        let result = unsafe { TrackPopupMenu(*self.handle, TPM_LEFTBUTTON, x, y, 0, window, None) };
-        if result.0 == 0 {
-            panic!("TrackPopupMenu failed: {}", Error::from_win32());
-        }
+    pub unsafe fn show(&self, x: i32, y: i32, window: HWND) -> bool {
+        // We set foreground window to ensure the menu will be dismissed on focus lost.
+        // SAFETY: The call is sound with a valid handle (guaranteed by the caller).
+        // The call is expected to fail in some cases (e.g. another menu is already displayed).
+        _ = unsafe { SetForegroundWindow(window) };
+        // SAFETY: The call is sound with valid handles.
+        unsafe { TrackPopupMenu(*self.handle, TPM_LEFTBUTTON, x, y, 0, window, None) }.0 != 0
     }
 }
