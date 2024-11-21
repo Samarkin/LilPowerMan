@@ -1,7 +1,7 @@
 use super::commands::Command;
 use super::id;
 use super::model::{Model, PopupMenuModel, PopupMenuType, TdpModel, TdpState};
-use crate::battery::{BatteriesIterator, Battery};
+use crate::battery::{BatteriesIterator, Battery, Error as BatteryError};
 use crate::ryzenadj::RyzenAdj;
 use crate::settings::{SettingsStorage, TdpSetting};
 use crate::winapi::show_error_message_box;
@@ -10,7 +10,7 @@ use std::ffi::OsString;
 use std::mem::take;
 use std::os::windows::ffi::OsStringExt;
 use windows::core::{Error, Owned, PWSTR};
-use windows::Win32::Foundation::{HWND, MAX_PATH};
+use windows::Win32::Foundation::{ERROR_NO_SUCH_DEVICE, HWND, MAX_PATH};
 use windows::Win32::System::Threading::{
     GetCurrentProcessId, OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
     PROCESS_QUERY_LIMITED_INFORMATION,
@@ -76,11 +76,27 @@ impl Controller {
         })
     }
 
-    fn get_charge_rate(&self) -> Option<Result<i32, String>> {
-        // FIXME: Battery device stops working after charger disconnect
-        self.battery
-            .as_ref()
-            .map(|b| b.get_charge_rate().map_err(|e| e.to_string()))
+    fn get_charge_rate(&mut self) -> Option<Result<i32, String>> {
+        let mut result = self.battery.as_ref().map(|b| b.get_charge_rate());
+        if let Some(Err(BatteryError::WindowsError(err))) = &result {
+            if err == &Error::from(ERROR_NO_SUCH_DEVICE) {
+                match BatteriesIterator::new().next() {
+                    None => {
+                        show_error_message_box("Battery disconnected");
+                        result = None;
+                        self.battery = None;
+                    }
+                    Some(Ok(new_battery)) => {
+                        result = Some(new_battery.get_charge_rate());
+                        self.battery = Some(new_battery);
+                    }
+                    Some(Err(e)) => {
+                        result = Some(Err(e));
+                    }
+                }
+            }
+        }
+        result.map(|r| r.map_err(|e| e.to_string()))
     }
 
     fn get_fg_application_pid() -> Result<u32, Error> {
