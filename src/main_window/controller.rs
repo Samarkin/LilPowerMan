@@ -161,10 +161,14 @@ impl Controller {
             .and_then(|s| self.model.settings.get_app_limit(s));
         if let Some(app_limit) = app_limit {
             target = Some(app_limit);
-            state = TdpState::ForcingApplication {
-                fallback: match value {
-                    Ok(x) => Some(x),
-                    Err(_) => None,
+            state = match old_state {
+                TdpState::ForcingApplication { .. } => old_state,
+                TdpState::Forcing => TdpState::ForcingApplication { fallback: None },
+                TdpState::Tracking => TdpState::ForcingApplication {
+                    fallback: match value {
+                        Ok(x) => Some(x),
+                        Err(_) => None,
+                    },
                 },
             };
         } else {
