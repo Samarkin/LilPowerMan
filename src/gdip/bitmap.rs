@@ -56,6 +56,9 @@ impl<'init> Bitmap<'init> {
 impl<'init> Drop for Bitmap<'init> {
     fn drop(&mut self) {
         // SAFETY: The native pointer is guaranteed to be valid
-        let _ = unsafe { GdipDisposeImage(self.native as *mut _) };
+        let result = unsafe { GdipDisposeImage(self.native as *mut _) };
+        if let Err(err) = Error::check(result) {
+            error!("Failed to dispose of a GDI+ bitmap: {}", err);
+        }
     }
 }

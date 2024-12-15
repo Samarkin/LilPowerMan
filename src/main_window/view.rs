@@ -46,32 +46,39 @@ impl<'gdip> View<'gdip> {
 
     /// Updates UI according to the provided model.
     pub fn update(&mut self, new_model: &Model) {
+        trace!("Updating the view");
         let old_model = replace(&mut self.model, new_model.clone());
         if let Some(tdp) = &new_model.tdp {
             self.update_tdp_icon(&old_model.tdp, tdp);
             let menu_rebuilt = self.update_tdp_menu(&old_model.tdp, tdp);
             self.update_tdp_selection(&old_model, &new_model, menu_rebuilt);
         } else {
+            trace!("No TDP icon");
             self.tdp_icon = None;
             self.tdp_icon_popup_menu = None;
         }
         if let Some(charge_icon_model) = &new_model.charge_icon {
             // SAFETY: Window handle's validity is guaranteed by the owner
             let charge_icon = self.charge_icon.get_or_insert_with(|| unsafe {
+                trace!("Creating charge icon");
                 NotifyIcon::new(self.window, id::NotifyIcon::ChargeRate as _, self.gdi_plus)
                     .unwrap()
             });
             Self::update_charge_icon(charge_icon, &old_model.charge_icon, charge_icon_model);
             self.build_charge_icon_menu();
         } else {
+            trace!("No charge icon");
             self.charge_icon = None;
             self.charge_icon_popup_menu = None;
         }
         if new_model.popup_menu != old_model.popup_menu {
-            // SAFETY: The call is always sound, but will return an error
-            //   if there is currently no menu displayed
-            let _ = unsafe { EndMenu() };
+            // SAFETY: The call is always sound
+            let result = unsafe { EndMenu() };
+            if let Err(err) = result {
+                error!("Failed to close popup menu: {}", err);
+            }
             if let Some(popup_menu) = &new_model.popup_menu {
+                trace!("Showing popup menu");
                 let menu = match popup_menu.menu {
                     PopupMenuType::TdpIcon => &self.tdp_icon_popup_menu,
                     PopupMenuType::ChargeIcon => &self.charge_icon_popup_menu,
@@ -79,7 +86,11 @@ impl<'gdip> View<'gdip> {
                 if let Some(menu) = menu {
                     // SAFETY: The handle points to a currently live window
                     _ = unsafe { menu.show(popup_menu.x, popup_menu.y, self.window) }
+                } else {
+                    error!("Request to display a non-existing {:?} menu", popup_menu.menu);
                 }
+            } else {
+                trace!("Hiding popup menu");
             }
         }
     }
@@ -87,12 +98,14 @@ impl<'gdip> View<'gdip> {
     fn update_tdp_icon(&mut self, old_model: &Option<TdpModel>, model: &TdpModel) {
         if let Some(old_model) = old_model {
             if old_model.state == model.state && old_model.value == model.value {
-                // Nothing to update
+                trace!("Bypassing TDP icon update - no changes detected");
                 return;
             }
         }
+        trace!("Updating TDP icon");
         // SAFETY: Window handle's validity is guaranteed by the owner
         let tdp_icon = self.tdp_icon.get_or_insert_with(|| unsafe {
+            trace!("Creating TDP icon");
             NotifyIcon::new(self.window, id::NotifyIcon::TdpLimit as _, self.gdi_plus).unwrap()
         });
         match model.value {
@@ -157,10 +170,11 @@ impl<'gdip> View<'gdip> {
     fn update_tdp_menu(&mut self, old_model: &Option<TdpModel>, model: &TdpModel) -> bool {
         if let Some(old_model) = old_model {
             if old_model.options == model.options && old_model.applications == model.applications {
-                // Nothing to update
+                trace!("Bypassing TDP menu update - no changes detected");
                 return false;
             }
         }
+        trace!("Updating TDP menu");
         // TODO: Update the existing menu instead of building a new one from scratch
         self.tdp_icon_menu_commands.clear();
         let mut menu = PopupMenu::new();
@@ -198,11 +212,14 @@ impl<'gdip> View<'gdip> {
 
     fn update_tdp_selection(&mut self, old_model: &Model, model: &Model, menu_rebuilt: bool) {
         if model.settings == old_model.settings && !menu_rebuilt {
+            trace!("Bypassing TDP menu selection update - no changes detected");
             return;
         }
         let Some(menu) = &mut self.tdp_icon_popup_menu else {
+            error!("Request to update selection of the non-existing TDP menu");
             return;
         };
+        trace!("Updating TDP menu selection");
         for (i, cmd) in self.tdp_icon_menu_commands.iter().enumerate() {
             let id = i as u32 + IDM_TDP_START;
             let checked = match cmd {
@@ -226,8 +243,10 @@ impl<'gdip> View<'gdip> {
         model: &Result<i32, String>,
     ) {
         if Some(model) == old_model.as_ref() {
+            trace!("Bypassing charge icon update - no changes detected");
             return;
         }
+        trace!("Updating charge icon");
         match model {
             Ok(charge_rate) => {
                 let is_charging = *charge_rate >= 0;
@@ -260,8 +279,10 @@ impl<'gdip> View<'gdip> {
 
     fn build_charge_icon_menu(&mut self) {
         if self.charge_icon_popup_menu.is_some() {
+            trace!("Bypassing charge icon menu update - no changes detected");
             return;
         }
+        trace!("Updating charge icon menu");
         self.charge_icon_menu_commands.clear();
         let mut menu = PopupMenu::new();
         let id = self.add_charge_command(Command::Exit);

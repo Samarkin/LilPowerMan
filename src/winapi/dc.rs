@@ -28,6 +28,9 @@ impl Drop for AcquiredDC {
     fn drop(&mut self) {
         // SAFETY: Runtime guarantees that `drop` will only be called once
         //   And the struct guarantees that DC is not of a single window.
-        let _ = unsafe { ReleaseDC(None, **self) };
+        let result = unsafe { ReleaseDC(None, **self) };
+        if result == 0 {
+            error!("Failed to release DC");
+        }
     }
 }

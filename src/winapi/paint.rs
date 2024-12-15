@@ -105,12 +105,17 @@ impl Drop for PaintContext {
         match self.hdc_source {
             DeviceContextSource::Window(window, ps) => {
                 // SAFETY: BeginPaint preceded creation of this instance of PaintContext
-                // Return value is always non-zero according to the documentation.
-                let _ = unsafe { EndPaint(window, &ps) };
+                let result = unsafe { EndPaint(window, &ps) };
+                if result.0 == 0 {
+                    error!("EndPaint failed");
+                }
             }
             DeviceContextSource::Owned => {
                 // SAFETY: This branch means we own the DC
-                let _ = unsafe { DeleteDC(self.hdc) };
+                let result = unsafe { DeleteDC(self.hdc) };
+                if result.0 == 0 {
+                    error!("DeleteDC failed");
+                }
             }
         }
     }

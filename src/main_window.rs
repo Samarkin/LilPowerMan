@@ -36,7 +36,9 @@ impl<'gdip> MainWindow<'gdip> {
     pub fn new(gdi_plus: &'gdip GdiPlus) -> Pin<Box<Self>> {
         // SAFETY: The call does not have any preconditions and is always sound
         let result = unsafe { SetProcessDPIAware() };
-        assert_ne!(result.0, 0, "SetProcessDPIAware failed");
+        if result.0 == 0 {
+            warn!("SetProcessDPIAware failed");
+        }
         let window_class_name = w!("MainWindow");
         let instance = get_instance_handle();
         let wnd_class_params = WNDCLASSEXW {

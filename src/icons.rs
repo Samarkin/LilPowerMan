@@ -105,6 +105,9 @@ impl Drop for NotifyIcon<'_> {
             ..Default::default()
         };
         // SAFETY: Notify icon data is a local structure
-        let _ = unsafe { Shell_NotifyIconW(NIM_DELETE, &notify_icon_data) };
+        let result = unsafe { Shell_NotifyIconW(NIM_DELETE, &notify_icon_data) };
+        if result.0 == 0 {
+            error!("Failed to delete notify icon");
+        }
     }
 }

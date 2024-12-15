@@ -41,6 +41,9 @@ impl<'init> Font<'init> {
 impl<'init> Drop for Font<'init> {
     fn drop(&mut self) {
         // SAFETY: The native pointer is guaranteed to be valid
-        let _ = Error::check(unsafe { GdipDeleteFont(self.native) });
+        let result = unsafe { GdipDeleteFont(self.native) };
+        if let Err(err) = Error::check(result) {
+            error!("Failed to delete GDI+ font: {}", err);
+        }
     }
 }

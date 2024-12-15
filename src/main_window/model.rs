@@ -18,7 +18,7 @@ pub struct TdpModel {
     pub options: Vec<u32>,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum PopupMenuType {
     TdpIcon,
     ChargeIcon,

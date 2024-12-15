@@ -68,6 +68,9 @@ impl<'init, 'bitmap> Graphics<'init, 'bitmap> {
 impl Drop for Graphics<'_, '_> {
     fn drop(&mut self) {
         // SAFETY: The native pointer is guaranteed to be valid
-        let _ = unsafe { GdipDeleteGraphics(self.native) };
+        let result = unsafe { GdipDeleteGraphics(self.native) };
+        if let Err(err) = Error::check(result) {
+            error!("Failed to delete GDI+ graphics: {}", err);
+        }
     }
 }

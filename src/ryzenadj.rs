@@ -107,6 +107,7 @@ pub struct RyzenAdjTable<'lib> {
 impl<'lib> RyzenAdjTable<'lib> {
     /// Returns current TDP fast limit in milliwatts.
     pub fn get_fast_limit(&self) -> u32 {
+        debug!("Reading TDP fast limit");
         // SAFETY: Validity of Library and `RyzenAccess` pointers is guaranteed
         // for the lifetime of `RyzenAdj` instance
         // The table has been refreshed as part of `RyzenAdjTable` initialization.
@@ -134,6 +135,7 @@ pub struct RyzenAdj {
 
 impl RyzenAdj {
     pub fn new() -> Result<Self, Error> {
+        debug!("Loading RyzenAdj library");
         // SAFETY: Bundled DLL version does not include any initialization/termination routines
         let library = unsafe { Library::new("./libryzenadj.dll")? };
         // SAFETY: The specified types match the library header
@@ -148,6 +150,7 @@ impl RyzenAdj {
                 set_stapm_limit: get_native_symbol(&library, b"set_stapm_limit")?,
             }
         };
+        debug!("Initializing RyzenAdj");
         // SAFETY: The library is still loaded in memory
         let ry = unsafe { (native.init_ryzenadj)() };
         if ry.is_invalid() {
@@ -163,6 +166,7 @@ impl RyzenAdj {
 
     /// Provides access to the refreshed table of CPU information.
     pub fn get_table(&self) -> Result<RyzenAdjTable, Error> {
+        debug!("Reading TDP table");
         // SAFETY: Validity of Library and `RyzenAccess` pointers is guaranteed
         // for the lifetime of `RyzenAdj` instance
         Error::check(unsafe { (self.native.refresh_table)(self.ry) })?;
@@ -175,8 +179,11 @@ impl RyzenAdj {
         // SAFETY: Validity of Library and `RyzenAccess` pointers is guaranteed
         // for the lifetime of `RyzenAdj` instance
         unsafe {
+            debug!("Setting STAPM limit");
             Error::check((self.native.set_stapm_limit)(self.ry, value))?;
+            debug!("Setting slow TDP limit");
             Error::check((self.native.set_slow_limit)(self.ry, value))?;
+            debug!("Setting fast TDP limit");
             Error::check((self.native.set_fast_limit)(self.ry, value))?;
         }
         Ok(())
@@ -185,6 +192,7 @@ impl RyzenAdj {
 
 impl Drop for RyzenAdj {
     fn drop(&mut self) {
+        debug!("Cleaning up RyzenAdj");
         // SAFETY: Validity of Library and `RyzenAccess` pointers is guaranteed
         // for the lifetime of `RyzenAdj` instance.
         // The language guarantees that `Drop::drop` will not be called twice.
