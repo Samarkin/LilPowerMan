@@ -89,10 +89,8 @@ impl<'gdip> NotifyIcon<'gdip> {
         let len = min(notify_icon_data.szTip.len() - 1, tip.len());
         notify_icon_data.szTip[..len].copy_from_slice(&tip[..len]);
         // SAFETY: Notify icon data is a local structure
-        if unsafe { Shell_NotifyIconW(NIM_MODIFY, &notify_icon_data) }.0 == 0 {
-            // We don't expect this operation to fail as long as hWnd and uID are valid
-            panic!("Shell_NotifyIconW(NIM_MODIFY) failed");
-        }
+        // This might fail occasionally depending on the Taskbar state, so ignore the return code
+        _ = unsafe { Shell_NotifyIconW(NIM_MODIFY, &notify_icon_data) };
     }
 }
 
