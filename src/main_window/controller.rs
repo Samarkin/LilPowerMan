@@ -41,7 +41,10 @@ impl Controller {
                 show_error_message_box(format!("Failed to initialize RyzenAdj: {}", err).as_str());
                 None
             },
-            Some,
+            |r| {
+                trace!("RyzenAdj initialized");
+                Some(r)
+            },
         );
         let battery = BatteriesIterator::new().next().and_then(|r| {
             r.map_or_else(
@@ -49,7 +52,10 @@ impl Controller {
                     show_error_message_box(format!("Failed to get battery info: {}", err).as_str());
                     None
                 },
-                Some,
+                |b| {
+                    trace!("Battery module initialized");
+                    Some(b)
+                },
             )
         });
         assert!(
@@ -148,8 +154,10 @@ impl Controller {
 
     pub fn refresh_tdp(&mut self) -> Option<TdpModel> {
         let Some(mut value) = self.get_tdp_limit() else {
+            trace!("Bypassing TDP refresh");
             return None;
         };
+        trace!("Refreshing TDP model");
         let (options, mut applications, old_state) = take(&mut self.model.tdp)
             .map(|m| (m.options, m.applications, m.state))
             .unwrap_or_else(|| (self.get_tdp_options(), VecDeque::new(), TdpState::Tracking));
