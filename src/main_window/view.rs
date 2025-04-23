@@ -87,7 +87,10 @@ impl<'gdip> View<'gdip> {
                     // SAFETY: The handle points to a currently live window
                     _ = unsafe { menu.show(popup_menu.x, popup_menu.y, self.window) }
                 } else {
-                    error!("Request to display a non-existing {:?} menu", popup_menu.menu);
+                    error!(
+                        "Request to display a non-existing {:?} menu",
+                        popup_menu.menu
+                    );
                 }
             } else {
                 trace!("Hiding popup menu");

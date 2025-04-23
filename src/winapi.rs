@@ -1,10 +1,12 @@
 pub mod colors;
 mod dc;
+mod files;
 mod paint;
 
 use windows::core::{w, Error, Owned, Result, PCWSTR};
-use windows::Win32::Foundation::{BOOL, HANDLE, HINSTANCE};
+use windows::Win32::Foundation::{BOOL, HANDLE, HINSTANCE, SYSTEMTIME};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::System::SystemInformation::GetLocalTime;
 use windows::Win32::System::IO::DeviceIoControl;
 use windows::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, GetMessageW, LoadCursorW, MessageBoxW, TranslateMessage, HCURSOR, IDC_ARROW,
@@ -12,6 +14,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 pub use dc::AcquiredDC;
+pub use files::Files;
 pub use paint::PaintContext;
 
 const APP_NAME: PCWSTR = w!("LilPowerMan");
@@ -26,6 +29,11 @@ pub fn get_instance_handle() -> HINSTANCE {
     // SAFETY: lpModuleName is None instead of a raw pointer
     // The call is sound and should always return the handle of the main module (.exe file)
     unsafe { GetModuleHandleW(None) }.unwrap().into()
+}
+
+pub fn get_local_time() -> SYSTEMTIME {
+    // SAFETY: The call is always sound
+    unsafe { GetLocalTime() }
 }
 
 pub fn get_default_cursor() -> HCURSOR {

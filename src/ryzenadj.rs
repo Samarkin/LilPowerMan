@@ -180,11 +180,15 @@ impl RyzenAdj {
         // for the lifetime of `RyzenAdj` instance
         unsafe {
             debug!("Setting STAPM limit");
+            log::logger().flush();
             Error::check((self.native.set_stapm_limit)(self.ry, value))?;
             debug!("Setting slow TDP limit");
+            log::logger().flush();
             Error::check((self.native.set_slow_limit)(self.ry, value))?;
             debug!("Setting fast TDP limit");
+            log::logger().flush();
             Error::check((self.native.set_fast_limit)(self.ry, value))?;
+            debug!("All limits set");
         }
         Ok(())
     }
