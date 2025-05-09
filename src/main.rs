@@ -9,6 +9,7 @@ mod icons;
 mod logging;
 mod main_window;
 mod menu;
+mod rtss;
 mod ryzenadj;
 mod settings;
 mod singleton;

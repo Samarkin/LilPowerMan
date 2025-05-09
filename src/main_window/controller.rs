@@ -1,7 +1,8 @@
 use super::commands::Command;
 use super::id;
 use super::model::{Model, PopupMenuModel, PopupMenuType, TdpModel, TdpState};
-use crate::battery::{BatteriesIterator, Battery, Error as BatteryError};
+use crate::battery::{BatteriesIterator, Battery, BatteryStatus, Error as BatteryError};
+use crate::rtss::{Error as RtssError, Rtss};
 use crate::ryzenadj::RyzenAdj;
 use crate::settings::{SettingsStorage, TdpSetting};
 use crate::winapi::show_error_message_box;
@@ -26,6 +27,7 @@ pub struct Controller {
     window: HWND,
     ryzen_adj: Option<RyzenAdj>,
     battery: Option<Battery>,
+    rtss: Rtss,
     settings_storage: SettingsStorage,
     self_path: Option<OsString>,
     model: Model,
@@ -62,12 +64,15 @@ impl Controller {
             ryzen_adj.is_some() || battery.is_some(),
             "All subsystems failed to initialize"
         );
+
+        let rtss = Rtss::new();
         let settings_storage = SettingsStorage::new();
         let model = Model::new(&settings_storage);
         Controller {
             window,
             ryzen_adj,
             battery,
+            rtss,
             settings_storage,
             model,
             self_path: Self::get_self_path().ok(),
@@ -82,8 +87,8 @@ impl Controller {
         })
     }
 
-    fn get_charge_rate(&mut self) -> Option<Result<i32, String>> {
-        let mut result = self.battery.as_ref().map(|b| b.get_charge_rate());
+    fn get_battery_status(&mut self) -> Option<Result<BatteryStatus, String>> {
+        let mut result = self.battery.as_ref().map(Battery::get_status);
         if let Some(Err(BatteryError::WindowsError(err))) = &result {
             if err == &Error::from(ERROR_NO_SUCH_DEVICE) {
                 match BatteriesIterator::new().next() {
@@ -93,7 +98,7 @@ impl Controller {
                         self.battery = None;
                     }
                     Some(Ok(new_battery)) => {
-                        result = Some(new_battery.get_charge_rate());
+                        result = Some(new_battery.get_status());
                         self.battery = Some(new_battery);
                     }
                     Some(Err(e)) => {
@@ -152,7 +157,7 @@ impl Controller {
         vec![5000, 7500, 10000, 15000, 20000, 24000, 28000]
     }
 
-    pub fn refresh_tdp(&mut self) -> Option<TdpModel> {
+    fn refresh_tdp(&mut self) -> Option<TdpModel> {
         let Some(mut value) = self.get_tdp_limit() else {
             trace!("Bypassing TDP refresh");
             return None;
@@ -224,9 +229,21 @@ impl Controller {
         })
     }
 
+    fn update_rtss(&mut self, battery_status: &BatteryStatus) {
+        match self.rtss.update(battery_status) {
+            Ok(()) => {}
+            Err(RtssError::RtssV2NotRunning) => {}
+            Err(err) => error!("Failed to update RTSS shared memory: {}", err),
+        }
+    }
+
     pub fn on_timer(&mut self) {
         self.model.tdp = self.refresh_tdp();
-        self.model.charge_icon = self.get_charge_rate();
+        let battery_status = self.get_battery_status();
+        if let Some(Ok(status)) = &battery_status {
+            self.update_rtss(&status);
+        }
+        self.model.charge_icon = battery_status.map(|r| r.map(|s| s.charge_rate));
     }
 
     pub fn on_command(&mut self, command: Command) {

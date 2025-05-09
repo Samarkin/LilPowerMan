@@ -173,20 +173,28 @@ impl Iterator for BatteriesIterator {
     }
 }
 
+pub struct BatteryStatus {
+    pub charge_rate: i32,
+    pub capacity: u32,
+}
+
 pub struct Battery {
     handle: Owned<HANDLE>,
     tag: u32,
 }
 
 impl Battery {
-    pub fn get_charge_rate(&self) -> Result<i32, Error> {
+    pub fn get_status(&self) -> Result<BatteryStatus, Error> {
         let bws = BATTERY_WAIT_STATUS {
             BatteryTag: self.tag,
             ..Default::default()
         };
         let status: BATTERY_STATUS =
             device_io_control(&self.handle, IOCTL_BATTERY_QUERY_STATUS, &bws)?;
-        Ok(status.Rate)
+        Ok(BatteryStatus {
+            charge_rate: status.Rate,
+            capacity: status.Capacity,
+        })
     }
 
     fn is_supported(&self) -> Result<bool, Error> {
@@ -199,6 +207,11 @@ impl Battery {
             device_io_control(&self.handle, IOCTL_BATTERY_QUERY_INFORMATION, &query)?;
         let rel_capacity =
             info.Capabilities & BATTERY_CAPACITY_RELATIVE == BATTERY_CAPACITY_RELATIVE;
+        debug!("Battery cycle count: {}", info.CycleCount);
+        debug!(
+            "Battery capacity: {}/{}",
+            info.FullChargedCapacity, info.DesignedCapacity
+        );
         let short_term_battery = info.Capabilities & BATTERY_IS_SHORT_TERM == BATTERY_IS_SHORT_TERM;
         let system_battery = info.Capabilities & BATTERY_SYSTEM_BATTERY == BATTERY_SYSTEM_BATTERY;
         Ok(system_battery && !short_term_battery && !rel_capacity)
