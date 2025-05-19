@@ -1,4 +1,4 @@
-use std::sync::atomic::AtomicI32;
+use std::sync::atomic::{AtomicI32, AtomicU32};
 
 // Hand-generated from RTSSSharedMemory.h
 // DO edit if something is missing
@@ -38,7 +38,7 @@ pub struct RtssSharedMemory {
 
     // Global OSD frame ID. Increment it to force the server to update OSD for all currently active
     // 3D applications.
-    pub osd_frame: u32,
+    pub osd_frame: AtomicU32,
 
     // set bit 0 when you're writing to shared memory and reset it when done
     // WARNING: do not forget to reset it, otherwise you'll completely lock OSD updates for
@@ -50,7 +50,6 @@ pub const RTSS_SIGNATURE: [u8; 4] = ['S' as u8, 'S' as u8, 'T' as u8, 'R' as u8]
 
 // OSD slot descriptor structure
 #[repr(C)]
-#[derive(Clone)]
 pub struct RtssSharedMemoryOsdEntry {
     //OSD slot text
     pub osd: [u8; 256],
@@ -67,17 +66,6 @@ pub struct RtssSharedMemoryOsdEntry {
 
     //OSD slot data buffer
     pub buffer: [u8; 262144],
-}
-
-impl Default for RtssSharedMemoryOsdEntry {
-    fn default() -> Self {
-        Self {
-            osd: [0; 256],
-            osd_owner: [0; 256],
-            osd_ex: [0; 4096],
-            buffer: [0; 262144],
-        }
-    }
 }
 
 #[repr(C)]

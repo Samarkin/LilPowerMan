@@ -4,6 +4,7 @@ use std::borrow::Cow;
 use std::cmp::min;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
+use std::ptr::slice_from_raw_parts;
 use std::sync::atomic::Ordering;
 use windows::core::{w, Error as WindowsError, Owned};
 use windows::Win32::Foundation::{ERROR_FILE_NOT_FOUND, HANDLE};
@@ -102,6 +103,14 @@ fn string_to_mem(s: &str, mem: &mut [u8]) -> bool {
         mem[len] = 0;
     }
     bytes.len() < mem.len()
+}
+
+// Safely copies the bytes from the provided slice into the given memory.
+// Returns `true` if the slice entirely fits into the memory.
+fn slice_to_mem(s: &[u8], mem: &mut [u8]) -> bool {
+    let len = min(s.len(), mem.len());
+    mem[..len].copy_from_slice(&s[..len]);
+    len < mem.len()
 }
 
 enum SharedMemoryIterationNextStep {
@@ -210,7 +219,9 @@ impl<'mem> SharedMemoryView<'mem> {
                 }
             }
         }
-        finalize(remembered_entry)
+        finalize(remembered_entry)?;
+        mem.osd_frame.fetch_add(1, Ordering::Release);
+        Ok(())
     }
 
     pub fn unregister(&mut self) -> Result<(), Error> {
@@ -218,7 +229,8 @@ impl<'mem> SharedMemoryView<'mem> {
             |i, entry| {
                 let owner = string_from_mem(&entry.osd_owner);
                 if owner == OWNER_SIGNATURE {
-                    *entry = Default::default();
+                    // SAFETY: entry points to a piece of shared memory we own
+                    unsafe { std::ptr::write_bytes(entry, 0, size_of_val(&entry)) };
                     info!("Unregistered ourselves from slot {i}");
                     trace!(
                         "Erased {} bytes at address 0x{:016X}",
@@ -258,38 +270,19 @@ impl<'mem> SharedMemoryView<'mem> {
                 f(target_entry)
             },
         )
-        /*
-            let owner = string_from_mem(&entry.osd_owner);
-            if owner == OWNER_SIGNATURE {
-                let graph =
-                    unsafe { &mut *(&mut entry.buffer as *mut _ as *mut RtssEmbeddedObjectGraph) };
-                graph.header.signature = RTSS_EMBEDDED_OBJECT_GRAPH_SIGNATURE;
-                graph.header.size = size_of::<RtssEmbeddedObjectGraph>() as u32;
-                graph.header.width = 50;
-                graph.header.height = 15;
-                graph.header.margin = 0;
-                graph.min = 0.0;
-                graph.max = 60.0;
-                graph.flags = RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_FRAMERATE| RTSS_EMBEDDED_OBJECT_GRAPH_FLAG_FRAMERATE_AVG;
-                graph.data_count = 0;
-                trace!("Updated OSD in slot {}", i);
-                break;
-            }
-        }
-         */
     }
 }
 
 pub struct SharedMemoryBuilder {
     osd: String,
-    buf_len: usize,
+    buffer: Vec<u8>,
 }
 
 impl SharedMemoryBuilder {
     pub fn new() -> Self {
         SharedMemoryBuilder {
             osd: String::new(),
-            buf_len: 0,
+            buffer: Vec::new(),
         }
     }
 
@@ -302,15 +295,77 @@ impl SharedMemoryBuilder {
         self.add_text("\r\n")
     }
 
+    pub fn add_graph(&mut self, graph: &EmbeddedGraph) -> &mut Self {
+        self.add_text(&format!("<OBJ={:08X}>", self.buffer.len()));
+        for chunk in graph.as_byte_chunks() {
+            self.buffer.extend_from_slice(chunk);
+        }
+        self
+    }
+
     pub fn write(&self, view: &mut SharedMemoryView) -> Result<(), Error> {
         view.update(|entry| {
             if !string_to_mem(OWNER_SIGNATURE, &mut entry.osd_owner)
                 || !string_to_mem(&self.osd, &mut entry.osd_ex)
+                || !slice_to_mem(&self.buffer, &mut entry.buffer)
             {
                 Err(Error::EntryOverflow)
             } else {
                 Ok(())
             }
         })
+    }
+}
+
+pub struct EmbeddedGraph {
+    core: RtssEmbeddedObjectGraph,
+    data: Vec<f32>,
+    data_ptr: usize,
+}
+
+impl EmbeddedGraph {
+    pub fn new(width: u16, height: u16, min: f32, max: f32) -> Self {
+        let len = width as usize;
+        EmbeddedGraph {
+            core: RtssEmbeddedObjectGraph {
+                header: RtssEmbeddedObject {
+                    signature: RTSS_EMBEDDED_OBJECT_GRAPH_SIGNATURE,
+                    size: (size_of::<RtssEmbeddedObjectGraph>() + len * size_of::<f32>()) as u32,
+                    width: width as i32,
+                    height: height as i32,
+                    margin: 0,
+                },
+                flags: 0,
+                min,
+                max,
+                data_count: len as u32,
+            },
+            data: vec![0.0; len],
+            data_ptr: 0,
+        }
+    }
+
+    pub fn push(&mut self, value: f32) {
+        self.data[self.data_ptr] = value;
+        self.data_ptr = (self.data_ptr + 1) % self.data.len();
+    }
+
+    pub fn as_byte_chunks(&self) -> impl IntoIterator<Item = &[u8]> {
+        let core_chunk = unsafe {
+            &*slice_from_raw_parts(&self.core as *const _ as *const u8, size_of_val(&self.core))
+        };
+        let head_chunk = unsafe {
+            &*slice_from_raw_parts(
+                self.data.as_ptr().add(self.data_ptr) as *const u8,
+                (self.data.len() - self.data_ptr) * size_of::<f32>(),
+            )
+        };
+        let tail_chunk = unsafe {
+            &*slice_from_raw_parts(
+                self.data.as_ptr() as *const u8,
+                self.data_ptr * size_of::<f32>(),
+            )
+        };
+        [core_chunk, head_chunk, tail_chunk]
     }
 }
