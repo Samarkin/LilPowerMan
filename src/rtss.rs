@@ -9,6 +9,7 @@ use windows::core::Error as WindowsError;
 
 pub struct Rtss {
     battery_graph: EmbeddedGraph,
+    fps_graph: EmbeddedGraph,
     ever_updated: bool,
 }
 
@@ -46,6 +47,7 @@ impl Rtss {
     pub fn new() -> Rtss {
         Rtss {
             battery_graph: EmbeddedGraph::new(50, 15, -45.0, 0.0),
+            fps_graph: EmbeddedGraph::new(50, 15, 0.0, 60.0),
             ever_updated: false,
         }
     }
@@ -55,6 +57,7 @@ impl Rtss {
         let mut view = SharedMemoryView::from_file(&mem)?;
         self.battery_graph
             .push((battery.charge_rate as f32) / 1000.0);
+        self.fps_graph.push(view.get_fps()?);
         let mut builder = SharedMemoryBuilder::new();
         builder.add_graph(&self.battery_graph);
         builder.add_text(&format!(
@@ -72,6 +75,7 @@ impl Rtss {
         let time = get_local_time();
         builder
             .add_newline()
+            .add_graph(&self.fps_graph)
             .add_text("<FR><S=50>FPS<S>")
             .add_text(&format!("  {:02}:{:02}", time.wHour, time.wMinute))
             .write(&mut view)?;

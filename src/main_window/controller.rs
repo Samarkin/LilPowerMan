@@ -5,7 +5,7 @@ use crate::battery::{BatteriesIterator, Battery, BatteryStatus, Error as Battery
 use crate::rtss::{Error as RtssError, Rtss};
 use crate::ryzenadj::RyzenAdj;
 use crate::settings::{SettingsStorage, TdpSetting};
-use crate::winapi::show_error_message_box;
+use crate::winapi::{get_fg_application_pid, get_self_pid, show_error_message_box};
 use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::mem::take;
@@ -13,12 +13,9 @@ use std::os::windows::ffi::OsStringExt;
 use windows::core::{Error, Owned, PWSTR};
 use windows::Win32::Foundation::{ERROR_NO_SUCH_DEVICE, HWND, MAX_PATH};
 use windows::Win32::System::Threading::{
-    GetCurrentProcessId, OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
-    PROCESS_QUERY_LIMITED_INFORMATION,
+    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
-use windows::Win32::UI::WindowsAndMessaging::{
-    DestroyWindow, GetForegroundWindow, GetWindowThreadProcessId,
-};
+use windows::Win32::UI::WindowsAndMessaging::DestroyWindow;
 
 const MAX_RECENT_APPLICATIONS: usize = 5;
 
@@ -110,18 +107,6 @@ impl Controller {
         result.map(|r| r.map_err(|e| e.to_string()))
     }
 
-    fn get_fg_application_pid() -> Result<u32, Error> {
-        // SAFETY: The call is always sound
-        let hwnd = unsafe { GetForegroundWindow() };
-        let mut pid = 0;
-        // SAFETY: The provided pointer is valid for the duration of the WinAPI call
-        let tid = unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
-        if tid == 0 {
-            Err(Error::from_win32())?
-        }
-        Ok(pid)
-    }
-
     fn get_application_path(pid: u32) -> Result<OsString, Error> {
         // SAFETY: The call is always sound, we own the returned handle
         let p = unsafe { Owned::new(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid)?) };
@@ -139,17 +124,12 @@ impl Controller {
         Ok(OsString::from_wide(&path[..len as usize]).to_ascii_lowercase())
     }
 
-    fn get_self_pid() -> u32 {
-        // SAFETY: The call is always sound
-        unsafe { GetCurrentProcessId() }
-    }
-
     fn get_self_path() -> Result<OsString, Error> {
-        Self::get_application_path(Self::get_self_pid())
+        Self::get_application_path(get_self_pid())
     }
 
     fn get_fg_application() -> Result<OsString, Error> {
-        Self::get_fg_application_pid().and_then(Self::get_application_path)
+        get_fg_application_pid().and_then(Self::get_application_path)
     }
 
     fn get_tdp_options(&self) -> Vec<u32> {

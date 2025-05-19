@@ -7,10 +7,11 @@ use windows::core::{w, Error, Owned, Result, PCWSTR};
 use windows::Win32::Foundation::{BOOL, HANDLE, HINSTANCE, SYSTEMTIME};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::SystemInformation::GetLocalTime;
+use windows::Win32::System::Threading::GetCurrentProcessId;
 use windows::Win32::System::IO::DeviceIoControl;
 use windows::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, GetMessageW, LoadCursorW, MessageBoxW, TranslateMessage, HCURSOR, IDC_ARROW,
-    MB_OK, MSG,
+    DispatchMessageW, GetForegroundWindow, GetMessageW, GetWindowThreadProcessId, LoadCursorW,
+    MessageBoxW, TranslateMessage, HCURSOR, IDC_ARROW, MB_OK, MSG,
 };
 
 pub use dc::AcquiredDC;
@@ -40,6 +41,23 @@ pub fn get_default_cursor() -> HCURSOR {
     // SAFETY: lpCursorName is a pre-defined constant instead of a raw pointer
     // The call is sound and should always return the handle of a pre-defined system cursor
     unsafe { LoadCursorW(None, IDC_ARROW) }.unwrap()
+}
+
+pub fn get_self_pid() -> u32 {
+    // SAFETY: The call is always sound
+    unsafe { GetCurrentProcessId() }
+}
+
+pub fn get_fg_application_pid() -> Result<u32> {
+    // SAFETY: The call is always sound
+    let hwnd = unsafe { GetForegroundWindow() };
+    let mut pid = 0;
+    // SAFETY: The provided pointer is valid for the duration of the WinAPI call
+    let tid = unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+    if tid == 0 {
+        Err(Error::from_win32())?
+    }
+    Ok(pid)
 }
 
 #[inline]

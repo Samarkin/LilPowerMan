@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicI32, AtomicU32};
-
+use windows::Win32::Foundation::MAX_PATH;
 // Hand-generated from RTSSSharedMemory.h
 // DO edit if something is missing
 
@@ -66,6 +66,30 @@ pub struct RtssSharedMemoryOsdEntry {
 
     //OSD slot data buffer
     pub buffer: [u8; 262144],
+}
+
+//application descriptor structure
+#[repr(C)]
+pub struct RtssSharedMemoryAppEntry {
+    //application identification related fields
+
+    //process ID
+    pub process_id: u32,
+    //process executable name
+    pub name: [u8; MAX_PATH as usize],
+    //application specific flags
+    pub flags: u32,
+
+    //instantaneous framerate related fields
+
+    //start time of framerate measurement period (in milliseconds)
+    pub time0: u32,
+    //end time of framerate measurement period (in milliseconds)
+    pub time1: u32,
+    //amount of frames rendered during (time1 - time0) period
+    pub frames: u32,
+    //frame time (in microseconds)
+    pub frame_time: u32,
 }
 
 #[repr(C)]

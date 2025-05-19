@@ -119,6 +119,7 @@ enum SharedMemoryIterationNextStep {
     RememberAndBreak,
     RememberIfNeededAndContinue,
 }
+use crate::winapi::get_fg_application_pid;
 use SharedMemoryIterationNextStep::*;
 
 impl<'mem> SharedMemoryView<'mem> {
@@ -166,6 +167,48 @@ impl<'mem> SharedMemoryView<'mem> {
         debug!("RTSS version: {version}");
         // SAFETY: It is safe to use addr as a pointer to RtssSharedMemory
         Ok(SharedMemoryView { view, size })
+    }
+
+    pub fn get_fps(&self) -> Result<f32, Error> {
+        // SAFETY: We verified that `view` is a valid RtssSharedMemory instance in `from_file`
+        let mem = unsafe { &*(self.view.addr.Value as *const RtssSharedMemory) };
+        if mem.signature != RTSS_SIGNATURE {
+            return Err(Error::RtssV2NotRunning);
+        }
+        let entry_size = mem.app_entry_size as usize;
+        if entry_size < size_of::<RtssSharedMemoryAppEntry>() {
+            error!(
+                "RTSS memory is corrupted: App entry size is {} bytes, expected at least {}",
+                entry_size,
+                size_of::<RtssSharedMemoryAppEntry>()
+            );
+            return Err(Error::UnexpectedMemoryLayout);
+        }
+        let pid = get_fg_application_pid().map_err(Error::WindowsError)?;
+        let base_addr = self.view.addr.Value as usize;
+        let map_view_size = self.size;
+        let n = mem.osd_arr_size as usize;
+        for i in 0..n {
+            let entry_last_byte = mem.app_arr_offset as usize + (i + 1) * entry_size - 1;
+            if entry_last_byte >= map_view_size {
+                error!("RTSS memory is corrupted: offset {} is out of bounds of the shared memory ({})",
+                    entry_last_byte, map_view_size);
+                return Err(Error::UnexpectedMemoryLayout);
+            }
+            let entry_addr = base_addr + mem.app_arr_offset as usize + i * entry_size;
+            // SAFETY: entry_addr points to a complete AppEntry, entirely within the mapped file
+            let entry = unsafe { &mut *(entry_addr as *mut RtssSharedMemoryAppEntry) };
+            if entry.process_id == pid {
+                let time0 = entry.time0;
+                let time1 = entry.time1;
+                return Ok(if time1 == time0 {
+                    0.0
+                } else {
+                    1000.0 * (entry.frames as f32) / (time1 - time0) as f32
+                });
+            }
+        }
+        Ok(0.0)
     }
 
     fn lock(&mut self) -> SharedMemoryGuard {
