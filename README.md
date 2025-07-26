@@ -22,6 +22,12 @@ Power manager / information display for portable Windows devices (laptops/tablet
 | Device with **no** AMD Ryzen but a battery     | ❌ No                                                                                                     | ✅ Yes                    |
 | Device with AMD Ryzen but **no** battery       | ⚠️ Yes, but you may need to adjust the [supported TDP list](src/main_window/controller.rs#L156) manually | ❌ No                     |
 
+## How to build?
+
+```
+build.bat
+```
+
 ## Alternatives / Inspiration
 
 - [RyzenAdj](https://github.com/FlyGoat/RyzenAdj) - If all you need is TDP control.
